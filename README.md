@@ -8,7 +8,7 @@ On Progress...
     <li><b>Notion Documentation (Detail Documentation)</b></li>
     <a href="https://stanley-n-wijaya.notion.site/Moorgan-Documentation-1df73555b71f80fd9fd9dbfc655ce5a7?pvs=4">Notion Documentation</a>
     <li><b>Demo Video</b></li>
-    <a href="https://drive.google.com/drive/folders/1XjZfySvS92iNH79hF5l6FU3b2-mCguZh?usp=sharing">Link Demo Video (Google Drive)</a>
+    <a href="https://binusianorg-my.sharepoint.com/personal/stanley_wijaya004_binus_ac_id/_layouts/15/guestaccess.aspx?share=EYMWsQ71C9NHv2bWAHrP4L8BMcDJ3e6a9U_hsyYi_i-wlw&nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJPbmVEcml2ZUZvckJ1c2luZXNzIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXciLCJyZWZlcnJhbFZpZXciOiJNeUZpbGVzTGlua0NvcHkifX0&e=eWRR7c">Link Demo Video</a>
     <li><b>Moorgan Google Drive</b></li>
     <a href="https://drive.google.com/drive/folders/1Slexo254LAhwieCQazA-peBe4Vl8fZJ5?usp=sharing">Moorgan Documents + Preliminary Research (Google Drive)</a>
 </ul>
