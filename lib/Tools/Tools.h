@@ -9,7 +9,6 @@ void playTone(uint8_t);
 void playTone2(uint8_t pin);
 void delayMicrosecondsNonBlocking(uint32_t microseconds);
 
-#ifdef DEVMODE
 template<typename T>
 void xprint(const T& value);
 
@@ -17,4 +16,3 @@ template<typename T>
 void xprintln(const T& value);
 
 void xprintf(const char* format, ...);
-#endif

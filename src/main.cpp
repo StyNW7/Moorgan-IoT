@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiProv.h>
+#include <Preferences.h>
 
 const char * pop = "abcd1234"; // Proof of possession - otherwise called a PIN - string provided by the device, entered by the user in the phone app
 const char * service_name = "PROV_123"; // Name of your device (the Espressif apps expects by default device name starting with "Prov_")
@@ -8,10 +9,26 @@ const char * service_key = NULL; // Password used for SofAP method (NULL = no pa
 
 bool reset_provisioned = true;
 
+Preferences pref;
+
 void SysProvEvent(arduino_event_t *sys_event);
 
 void setup() {
   Serial.begin(115200);
+
+
+  // uuid creation system (for unique id every device)
+  pref.begin("uuid",true);
+  // check if there's a uuid available or generated already
+  // if so use that as the uuid
+  // if not then end the pref.begin and open the pref.begin with readonly false
+  // generate the uuid array using function in the tools, then write it to the uuid namespace
+  // then pref.end()
+  // this can be implemented in the tools, no need to do it here
+  pref.end();
+
+
+
   WiFi.onEvent(SysProvEvent);
 
   Serial.println("Begin Provisioning using BLE");

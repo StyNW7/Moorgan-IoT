@@ -1,20 +1,7 @@
 #include <Arduino.h>
 #include <config.h>
+#include <esp_system.h>
 
-#ifdef DEVMODE
-void checkFlashPSRAM(){
-        if (psramFound()) {
-        Serial.println("PSRAM is enabled and available!");
-        Serial.print("PSRAM size is ");
-        Serial.println(ESP.getPsramSize());
-    } else {
-        Serial.println("PSRAM is not available.");
-    }
-
-    Serial.print("The flash size is ");
-    Serial.println(ESP.getFlashChipSize());
-}
-#endif
 
 void playTone(uint8_t pin){
     tone(pin, 440, 150);
@@ -43,6 +30,21 @@ void delayMicrosecondsNonBlocking(uint32_t microseconds) {
     }
 }
 
+
+void generateUUID(uint8_t uuid[16]) {
+    esp_fill_random(uuid, sizeof(uuid));
+    // Set version to 4 -- truly random
+    uuid[6] = (uuid[6] & 0x0F) | 0x40;
+    // Set variant to 10xxxxxx
+    uuid[8] = (uuid[8] & 0x3F) | 0x80;
+}
+
+/*----------------------------------
+|                                  |
+|   Development Mode Only Codes    |
+|                                  |
+----------------------------------*/
+
 #ifdef DEVMODE
 template<typename T>
 void xprintln(const T& value) {
@@ -62,6 +64,20 @@ inline void xprintf(const char* format, ...) {
     va_end(args);
     Serial.print(buf);
 }
+
+void checkFlashPSRAM(){
+        if (psramFound()) {
+        Serial.println("PSRAM is enabled and available!");
+        Serial.print("PSRAM size is ");
+        Serial.println(ESP.getPsramSize());
+    } else {
+        Serial.println("PSRAM is not available.");
+    }
+
+    Serial.print("The flash size is ");
+    Serial.println(ESP.getFlashChipSize());
+}
+
 #else
 template<typename T>
 void xprintln(const T& value);
