@@ -1,80 +1,133 @@
 #include <Arduino.h>
+#include <Tools.h>
+#include "wifi_provisioning/manager.h"
 #include <WiFi.h>
+#include <config.h>
+#include <UUID.h>
 #include <WiFiProv.h>
+#include <FreeRTOS/task.h>
 #include <Preferences.h>
 
-const char * pop = "abcd1234"; // Proof of possession - otherwise called a PIN - string provided by the device, entered by the user in the phone app
-const char * service_name = "PROV_123"; // Name of your device (the Espressif apps expects by default device name starting with "Prov_")
-const char * service_key = NULL; // Password used for SofAP method (NULL = no password needed)
+const char * service_name = "Prov_Moorgan_Colar"; // Name of your device (the Espressif apps expects by default device name starting with "Prov_")
 
-bool reset_provisioned = true;
+// Global variables
+bool wifi_connected = false; // Flag to check if WiFi is connected
 
 Preferences pref;
+UUID uuid;
 
 void SysProvEvent(arduino_event_t *sys_event);
 
+void loop(){}
+
 void setup() {
-  Serial.begin(115200);
+  // variables that are discarded after setup finishes
+  const char * pop = NULL; // Proof of possession - otherwise called a PIN - string provided by the device, entered by the user in the phone app
+  const char * service_key = NULL; // Password used for SofAP method (NULL = no password needed)
+  
+  // starting serial communication if in DEVMODE
+  #ifdef DEVMODE
+    Serial.begin(115200);
+  #endif
 
 
+  // DEVICE INITIALIZATION
+  xprintln("Device initialization");
+  
   // uuid creation system (for unique id every device)
   pref.begin("uuid",true);
   // check if there's a uuid available or generated already
-  // if so use that as the uuid
-  // if not then end the pref.begin and open the pref.begin with readonly false
-  // generate the uuid array using function in the tools, then write it to the uuid namespace
+  pref.getBytes("uuid", uuid.getUUID(), uuid.getSize());
+  if (!uuid.isUnset()) {
+    xprintln("UUID already generated !");
+    uuid.print();
+    // if uuid is available then use it
+  } else {
+    xprintln("UUID not available !\nGenerating new UUID");
+    // if not then end the pref.begin and open the pref.begin with readonly false
+    pref.end();
+    pref.begin("uuid", false);
+    // generate the uuid array via class
+    uuid.generate();
+    uuid.print();
+    // save the uuid in the nvs
+    // this is the uuid that will be used for the device permanently
+    pref.putBytes("uuid", uuid.getUUID(), uuid.getSize());
+    xprintln("UUID generated and saved in NVS");
+  }
+
   // then pref.end()
-  // this can be implemented in the tools, no need to do it here
   pref.end();
+  // this can be implemented in the tools, no need to do it here
+  // DEVICE INITIALIZATION end
 
-
-
+  // WiFi initialization
+  xprintln("WiFi Provisioning initialization");
   WiFi.onEvent(SysProvEvent);
 
-  Serial.println("Begin Provisioning using BLE");
-  // Sample uuid that user can pass during provisioning using BLE
-  uint8_t uuid[16] = {0xb4, 0xdf, 0x5a, 0x1c, 0x3f, 0x6b, 0xf4, 0xbf,
-                      0xea, 0x4a, 0x82, 0x03, 0x04, 0x90, 0x1a, 0x02 };
+  xprintln("Begin Provisioning using BLE");
+  // WiFiProv.beginProvision(
   WiFiProv.beginProvision(
-    WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BLE, WIFI_PROV_SECURITY_1, pop, service_name, service_key, uuid, reset_provisioned
+    WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BLE, WIFI_PROV_SECURITY_1, pop, service_name, service_key, uuid.getUUID(), false
   );
-  log_d("ble qr");
-  WiFiProv.printQR(service_name, pop, "ble");
-}
 
-void loop() {
-  // put your main code here, to run repeatedly:
+
+  xTaskCreate(
+    [] (void * param) {
+      // this is the task that will be used to check if the device is connected to the wifi
+      while (true) {
+        if (WiFi.status() == WL_CONNECTED) {
+          wifi_connected = true;
+          xprintln("WiFi connected");
+          break;
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+      }
+    },
+    "wifi_check",
+    4096,
+    NULL,
+    1,
+    NULL
+  );
+
 }
 
 void SysProvEvent(arduino_event_t *sys_event) {
   switch (sys_event->event_id) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-      Serial.print("\nConnected IP address : ");
-      Serial.println(IPAddress(sys_event->event_info.got_ip.ip_info.ip.addr));
+      xprint("\nConnected IP address : ");
+      xprintln(IPAddress(sys_event->event_info.got_ip.ip_info.ip.addr));
+      wifi_prov_mgr_deinit(); // De-initialize the provisioning manager to stop the provisioning process
+      xprintln("Provisioning stopped");
       break;
-    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: Serial.println("\nDisconnected. Connecting to the AP again... "); break;
-    case ARDUINO_EVENT_PROV_START:            Serial.println("\nProvisioning started\nGive Credentials of your access point using smartphone app"); break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: xprintln("\nDisconnected. Connecting to the AP again... "); break;
+    case ARDUINO_EVENT_PROV_START:            xprintln("\nProvisioning started\nGive Credentials of your access point using smartphone app"); break;
     case ARDUINO_EVENT_PROV_CRED_RECV:
     {
-      Serial.println("\nReceived Wi-Fi credentials");
-      Serial.print("\tSSID : ");
-      Serial.println((const char *)sys_event->event_info.prov_cred_recv.ssid);
-      Serial.print("\tPassword : ");
-      Serial.println((char const *)sys_event->event_info.prov_cred_recv.password);
+      xprintln("\nReceived Wi-Fi credentials");
+      xprint("\tSSID : ");
+      xprintln((const char *)sys_event->event_info.prov_cred_recv.ssid);
+      xprint("\tPassword : ");
+      xprintln((char const *)sys_event->event_info.prov_cred_recv.password);
       break;
     }
     case ARDUINO_EVENT_PROV_CRED_FAIL:
     {
-      Serial.println("\nProvisioning failed!\nPlease reset to factory and retry provisioning\n");
+      xprintln("\nProvisioning failed!\nPlease reset to factory and retry provisioning\n");
       if (sys_event->event_info.prov_fail_reason == WIFI_PROV_STA_AUTH_ERROR) {
-        Serial.println("\nWi-Fi AP password incorrect");
+        xprintln("\nWi-Fi AP password incorrect");
       } else {
-        Serial.println("\nWi-Fi AP not found....Add API \" nvs_flash_erase() \" before beginProvision()");
+        xprintln("\nWi-Fi AP not found....Add API \"");
       }
+
+      xprintln("Resetting device to factory settings");
+      // reset the device to factory settings
+
       break;
     }
-    case ARDUINO_EVENT_PROV_CRED_SUCCESS: Serial.println("\nProvisioning Successful"); break;
-    case ARDUINO_EVENT_PROV_END:          Serial.println("\nProvisioning Ends"); break;
+    case ARDUINO_EVENT_PROV_CRED_SUCCESS: xprintln("\nProvisioning Successful"); break;
+    case ARDUINO_EVENT_PROV_END:          xprintln("\nProvisioning Ends"); break;
     default:                              break;
   }
 }
