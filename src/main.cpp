@@ -1,18 +1,18 @@
 #include <Arduino.h>
+#include <Tools.h>
+#include <WiFi.h>
+#include <config.h>
+#include <FreeRTOS/task.h>
+#include <Provision.h> // Singleton class for provisioning & include UUID data
 
-// put function declarations here:
-int myFunction(int, int);
+
+void loop(){}
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
-}
+  #ifdef DEVMODE
+    Serial.begin(115200);
+  #endif
 
-void loop() {
-  // put your main code here, to run repeatedly:
-}
+  Provision::getInstance()->setupProvision();
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
 }
