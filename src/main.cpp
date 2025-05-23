@@ -5,7 +5,6 @@
 #include <FreeRTOS/task.h>
 #include <Provision.h> // Singleton class for provisioning & include UUID data
 
-
 void loop(){}
 
 void setup() {

@@ -9,7 +9,7 @@
 #include <Preferences.h>
 #include <FreeRTOS/task.h>
 
-void provision_wifi_check (void * connected);
+void provision_wifi_check (void *in) ;
 void SysProvEvent(arduino_event_t *sys_event, Provision *provision);
 
 typedef struct {
@@ -177,8 +177,9 @@ void SysProvEvent(arduino_event_t *sys_event, Provision *provision) {
     }
 }
 
-void provision_wifi_check (ProvisioningData *data) {
+void provision_wifi_check (void *in) {
     // this is the task that will be used to check if the device is connected to the wifi
+    ProvisioningData *data = (ProvisioningData *)in;
     xprintln("Connecting to WiFi...");
     WiFiProv.printQR((const char*)data->service_name, (const char*)data->pop, "BLE");
     while (true) {
