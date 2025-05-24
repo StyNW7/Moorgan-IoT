@@ -6,4 +6,4 @@
 #define DS18B20_RESOLUTION 10
 
 // mpu gyro accel sensor
-#define MPU6050_PIN 5
+// #define MPU_INTERRUPT_PIN 5

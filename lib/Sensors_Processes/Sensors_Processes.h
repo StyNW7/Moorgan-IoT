@@ -6,21 +6,22 @@
 
 class Sensors_Processes{
     private:
-        static Sensors_Processes *instance;
         DS18B20 *dsb;
         Adafruit_MPU6050 *mpu;
-
+        
         Sensors_Processes();
+        static Sensors_Processes *instance;
         Sensors_Processes(const Sensors_Processes&) = delete;
         Sensors_Processes& operator=(const Sensors_Processes&) = delete;
 
         void mpuSetup();
     public:
         ~Sensors_Processes();
-
+        static Sensors_Processes* getInstance();
+        
+        void readMPUData();
+        void readTempData();
+        void setup();
         bool getTempAvail();
         bool getMovAvail();
-        void startReading();
-        Sensors_Processes* getInstance();
-        void setup();
 };
