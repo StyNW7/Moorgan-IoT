@@ -12,11 +12,13 @@
 void provision_wifi_check (void *in) ;
 void SysProvEvent(arduino_event_t *sys_event, Provision *provision);
 
+#ifdef DEVMODE
 typedef struct {
     char *pop;
     char *service_name;
     bool *connected;
 } ProvisioningData;
+#endif
 
 // Initialize the static instance pointer to nullptr
 Provision* Provision::instance = nullptr;
@@ -105,18 +107,32 @@ void Provision::setupProvision() {
         WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BLE, WIFI_PROV_SECURITY_1, this->pop, PROVISIONING_SERVICE_NAME, NULL, this->uuid->getUUID(), false
     );
 
-    xTaskCreate(
-        provision_wifi_check,
-        "wifi_check",
-        2048,
-        (void *)&(ProvisioningData){
+    #ifdef DEVMODE
+        ProvisioningData *provData = new ProvisioningData{
             this->pop,
-            PROVISIONING_SERVICE_NAME,
+            (char *)PROVISIONING_SERVICE_NAME,
             &this->connected
-        },
-        1,
-        NULL
-    );
+        };
+
+        xTaskCreate(
+            provision_wifi_check,
+            "wifi_check",
+            2048,
+            (void *)provData,
+            1,
+            NULL
+        );
+    #else
+        xTaskCreate(
+            provision_wifi_check,
+            "wifi_check",
+            2048,
+            (void *)&this->connected,
+            1,
+            NULL
+        );
+    #endif
+
 }
 
 
@@ -177,6 +193,7 @@ void SysProvEvent(arduino_event_t *sys_event, Provision *provision) {
     }
 }
 
+#ifdef DEVMODE
 void provision_wifi_check (void *in) {
     // this is the task that will be used to check if the device is connected to the wifi
     ProvisioningData *data = (ProvisioningData *)in;
@@ -190,5 +207,20 @@ void provision_wifi_check (void *in) {
         }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
+    delete in;
     vTaskDelete(NULL);
 }
+#else
+void provision_wifi_check (void *in) {
+    // this is the task that will be used to check if the device is connected to the wifi
+    bool *connected = (bool *)in;
+    while (true) {
+        if (WiFi.status() == WL_CONNECTED) {
+            *connected = true;
+            break;
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    vTaskDelete(NULL);
+}
+#endif
