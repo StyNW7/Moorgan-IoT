@@ -3,11 +3,13 @@
 #include <Tools.h>
 #include <MPU6050.h>
 #include <OneWire.h>
+#include <MAX30102.h>
 #include "DS18B20.h"
+
+MainData minuteDatas[60];
 
 
 // function declarations
-
 Sensors_Processes* Sensors_Processes::instance = nullptr;
 // SENSORSSSSSSSSSSSS
 // all the sensors method and attributes
@@ -16,6 +18,7 @@ Sensors_Processes* Sensors_Processes::instance = nullptr;
 Sensors_Processes::Sensors_Processes() {
     dsb = nullptr;
     mpu = nullptr;
+    max = nullptr;
 }
 
 Sensors_Processes* Sensors_Processes::getInstance() {
@@ -40,6 +43,10 @@ Sensors_Processes::~Sensors_Processes(){
 }
 
 void Sensors_Processes::setup(){
+
+    Wire.begin(); // Initialize I2C (SDA, SCL default for ESP32-C3)
+    Wire.setClock(400000); // 400kHz I2C clock
+
     if(dsb == nullptr){
         dsb = new DS18B20(new OneWire(DS18B20_PIN), DS18B20_RESOLUTION);
     }
@@ -48,10 +55,14 @@ void Sensors_Processes::setup(){
         mpu = new Adafruit_MPU6050();
     }
 
+    if(max == nullptr){
+        max = new MAX30102();
+    }
+
     
     dsb->begin();
     mpuSetup(mpu);
-    // setup MAX30102
+    max->setup();
 }
 
 // all the temperature sensor methods
@@ -63,21 +74,17 @@ bool Sensors_Processes::getTempAvail(){
     return false;
 }
 
-void Sensors_Processes::readTempData(){
+float Sensors_Processes::readTempData(){
 
     dsb->requestTemperatures();
-    dsb->getTempC();
     
     while(!dsb->isConversionComplete()){
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 
+    return dsb->getTempC();
 }
 
-
-// all the heart rate and oxygen sensor methods
-// and attributes
-
-void Sensors_Processes::maxSetup(){
+void Sensors_Processes::pullData(){
 
 }

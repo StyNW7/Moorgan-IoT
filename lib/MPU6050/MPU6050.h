@@ -15,18 +15,18 @@
 #define MPU6050_RA_FIFO_COUNTL  0x73
 #define MPU6050_RA_FIFO_R_W     0x74
 
-typedef struct{
+struct MPUData{
     float *mean_ax_arr;
     float *mean_ay_arr;
     float *mean_az_arr;
     float *mean_mv_arr;
     float *std_mv_arr;
     uint8_t windowSize;
-}MPUData;
+};
 
 bool getMovAvail(Adafruit_MPU6050 *mpu);
 void writeMPURegister(uint8_t regAddress, uint8_t data);
 uint8_t readMPURegister(uint8_t regAddress);
 void readMPURegisters(uint8_t regAddress, uint8_t count, uint8_t *dest);
 void mpuSetup(Adafruit_MPU6050 *mpu);
-MPUData readMPUData();
+MPUData readMPU();

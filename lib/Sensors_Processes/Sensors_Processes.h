@@ -20,6 +20,7 @@ class Sensors_Processes{
     private:
         DS18B20 *dsb;
         Adafruit_MPU6050 *mpu;
+        MAX30102 *max;
         
         Sensors_Processes();
         static Sensors_Processes *instance;
@@ -30,8 +31,8 @@ class Sensors_Processes{
         ~Sensors_Processes();
         static Sensors_Processes* getInstance();
         
-        void readTempData();
+        float readTempData();
         void setup();
         bool getTempAvail();
-        void maxSetup();
+        void pullData();
 };
