@@ -4,6 +4,26 @@
 #include <Adafruit_MPU6050.h>
 #include <DS18B20.h>
 
+typedef struct{
+    float *mean_ax_arr;
+    float *mean_ay_arr;
+    float *mean_az_arr;
+    float *mean_mv_arr;
+    float *std_mv_arr;
+    uint8_t windowSize;
+}MPUData;
+
+typedef struct{
+    float heart_rate;
+    float oxygen;
+}MAXData;
+
+typedef struct{
+    float temp_in_c;
+    MPUData mpu_data;
+    MAXData max_data;
+}MainData;
+
 class Sensors_Processes{
     private:
         DS18B20 *dsb;
@@ -19,7 +39,7 @@ class Sensors_Processes{
         ~Sensors_Processes();
         static Sensors_Processes* getInstance();
         
-        void readMPUData();
+        MPUData readMPUData();
         void readTempData();
         void setup();
         bool getTempAvail();

@@ -237,8 +237,9 @@ void Sensors_Processes::mpuSetup(){
 // a one time read method, and it reads data from multiple reading intervals 
 // stored in the FIFO. It is designed to be called from a main loop with delay 
 // (presumably from esp light sleep timer). Recommend to be called periodically
-void Sensors_Processes::readMPUData() {
+MPUData Sensors_Processes::readMPUData() {
     // esp_timer_get_time() can also be used for ESP sleeping applications,
+    MPUData data;
 
     #ifdef MPU_INTERRUPT_PIN
     // Check for MPU's own FIFO overflow interrupt (optional failsafe)
@@ -281,14 +282,28 @@ void Sensors_Processes::readMPUData() {
         int numSamples = bytesToRead / 6;
         xprint("Number of accelerometer samples processed: "); xprintln(numSamples);
 
-        // Variables for statistics
-        float sum_ax = 0, sum_ay = 0, sum_az = 0;
-        float sumsq_ax = 0, sumsq_ay = 0, sumsq_az = 0;
-        float min_ax = FLT_MAX, min_ay = FLT_MAX, min_az = FLT_MAX;
-        float max_ax = -FLT_MAX, max_ay = -FLT_MAX, max_az = -FLT_MAX;
+        uint8_t windowSize = 12; //sample
+        uint16_t num_total_windows = 0;
 
-        for (int i = 0; i < numSamples; i++) {
-            int offset = i * 6;
+        if (numSamples > 0 && windowSize > 0) { // Check windowSize > 0 to prevent division by zero
+            num_total_windows = (numSamples + windowSize - 1) / windowSize;
+        }
+
+        // window feature array 
+        float *mean_ax_arr = (float *)calloc(num_total_windows, sizeof(float));
+        float *mean_ay_arr = (float *)calloc(num_total_windows, sizeof(float));
+        float *mean_az_arr = (float *)calloc(num_total_windows, sizeof(float));
+        float *mean_mv_arr = (float *)calloc(num_total_windows, sizeof(float));
+        float *std_mv_arr = (float *)calloc(num_total_windows, sizeof(float));
+
+        // buffer to store feature temporarily
+        float temp_mv_g[windowSize] = {0};
+        
+        // each window consist of that amount of sample, then it will be summed together to find
+        // vm stdev, vm mean, x mean, y mean, z mean 
+
+        for (uint8_t i = 0; i < numSamples; i++) {
+            uint8_t offset = i * 6;
             int16_t ax_raw = (int16_t)((fifoBuffer[offset + 0] << 8) | fifoBuffer[offset + 1]);
             int16_t ay_raw = (int16_t)((fifoBuffer[offset + 2] << 8) | fifoBuffer[offset + 3]);
             int16_t az_raw = (int16_t)((fifoBuffer[offset + 4] << 8) | fifoBuffer[offset + 5]);
@@ -297,40 +312,50 @@ void Sensors_Processes::readMPUData() {
             float ax_g = (float)ax_raw / 4096.0f;
             float ay_g = (float)ay_raw / 4096.0f;
             float az_g = (float)az_raw / 4096.0f;
+            temp_mv_g[i % windowSize] = sqrtf(ax_g*ax_g + ay_g*ay_g + az_g*az_g);
 
-            sum_ax += ax_g; sum_ay += ay_g; sum_az += az_g;
-            sumsq_ax += ax_g * ax_g; sumsq_ay += ay_g * ay_g; sumsq_az += az_g * az_g;
+            // Use integer division for floor division in C++ (since both i and windowSize are integers)
+            mean_ax_arr[i / windowSize] += ax_g;
+            mean_ay_arr[i / windowSize] += ay_g;
+            mean_az_arr[i / windowSize] += az_g;
+            mean_mv_arr[i / windowSize] += temp_mv_g[i % windowSize];
 
-            if (ax_g < min_ax) min_ax = ax_g;
-            if (ay_g < min_ay) min_ay = ay_g;
-            if (az_g < min_az) min_az = az_g;
-
-            if (ax_g > max_ax) max_ax = ax_g;
-            if (ay_g > max_ay) max_ay = ay_g;
-            if (az_g > max_az) max_az = az_g;
-
-            // For debugging, print first few samples' raw data
-            if (i < 3) {
-                xprint("  Sample "); xprint(i + 1); xprint(" Raw: AX="); xprint(ax_raw);
-                xprint(" AY="); xprint(ay_raw);
-                xprint(" AZ="); xprintln(az_raw);
+            if((i+1) % windowSize == 0){
+                mean_ax_arr[i / windowSize] /= windowSize;
+                mean_ay_arr[i / windowSize] /= windowSize;
+                mean_az_arr[i / windowSize] /= windowSize;
+                mean_mv_arr[i / windowSize] /= windowSize;
+                // Calculate standard deviation of mv_g for this window
+                float sum_sq = 0.0f;
+                for (uint8_t j = 0; j < windowSize; j++) {
+                    sum_sq += (temp_mv_g[j] - mean_mv_arr[i / windowSize]) * (temp_mv_g[j] - mean_mv_arr[i / windowSize]);
+                }
+                std_mv_arr[i / windowSize] = sqrtf(sum_sq / (windowSize-1));
+                // std_mv_arr = sqrtf(sumsq_ax / numSamples - mean_ax * mean_ax);
+                xprintf("mean for window %d : x %.2f, y %.2f, z %.2f\nMagnitude info: mean %.2f, std %f", (i / windowSize)+1, mean_ax_arr[i/windowSize], mean_ay_arr[i/windowSize], mean_az_arr[i/windowSize], mean_mv_arr[i/windowSize], std_mv_arr[i/windowSize]);
+            } else if(i+1 >= numSamples){
+                uint8_t partialWindowSize = (i+1) % windowSize;
+                mean_ax_arr[i/windowSize] /= partialWindowSize;
+                mean_ay_arr[i/windowSize] /= partialWindowSize;
+                mean_az_arr[i/windowSize] /= partialWindowSize;
+                mean_mv_arr[i/windowSize] /= partialWindowSize;
+                float sum_sq = 0.0f;
+                for (uint8_t j = 0; j < partialWindowSize; j++) {
+                    sum_sq += (temp_mv_g[j] - mean_mv_arr[i / windowSize]) * (temp_mv_g[j] - mean_mv_arr[i / windowSize]);
+                }
+                std_mv_arr[i / windowSize] = sqrtf(sum_sq / (partialWindowSize-1));
+                xprintf("mean for window %d : x %.2f, y %.2f, z %.2f\nMagnitude info: mean %.2f, std %f", (i / windowSize)+1, mean_ax_arr[i/windowSize], mean_ay_arr[i/windowSize], mean_az_arr[i/windowSize], mean_mv_arr[i/windowSize], std_mv_arr[i/windowSize]);
             }
         }
-
-        if (numSamples > 0) {
-            float mean_ax = sum_ax / numSamples;
-            float mean_ay = sum_ay / numSamples;
-            float mean_az = sum_az / numSamples;
-
-            float std_ax = sqrtf(sumsq_ax / numSamples - mean_ax * mean_ax);
-            float std_ay = sqrtf(sumsq_ay / numSamples - mean_ay * mean_ay);
-            float std_az = sqrtf(sumsq_az / numSamples - mean_az * mean_az);
-
-            xprintln("Accelerometer statistics (in G's):");
-            xprintf("  AX: mean=%.4f, min=%.4f, max=%.4f, std=%.4f\n", mean_ax, min_ax, max_ax, std_ax);
-            xprintf("  AY: mean=%.4f, min=%.4f, max=%.4f, std=%.4f\n", mean_ay, min_ay, max_ay, std_ay);
-            xprintf("  AZ: mean=%.4f, min=%.4f, max=%.4f, std=%.4f\n", mean_az, min_az, max_az, std_az);
-        } else {
+            // save the data to the data struct/object and return this object
+            data.mean_ax_arr = mean_ax_arr;
+            data.mean_ay_arr = mean_ay_arr;
+            data.mean_az_arr = mean_az_arr;
+            data.mean_mv_arr = mean_mv_arr;
+            data.std_mv_arr = std_mv_arr;
+            data.windowSize = num_total_windows;
+        
+        if (numSamples == 0) {
             xprintln("No accelerometer samples to compute statistics.");
         }
 
@@ -345,4 +370,13 @@ void Sensors_Processes::readMPUData() {
     writeMPURegister(MPU6050_RA_USER_CTRL, 0b01000100); // FIFO_EN=1, FIFO_RESET=1
     xprintln("MPU FIFO Reset. Ready for next collection cycle.");
 
+    // Fill data fields here as needed, for example:
+    // (Make sure MPUData struct/class has these fields and proper ownership/cleanup.)
+
+    return data;
 }
+
+// all the heart rate and oxygen sensor methods
+// and attributes
+
+
