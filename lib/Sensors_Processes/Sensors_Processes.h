@@ -3,15 +3,7 @@
 #include <Sensors_Processes.h>
 #include <Adafruit_MPU6050.h>
 #include <DS18B20.h>
-
-typedef struct{
-    float *mean_ax_arr;
-    float *mean_ay_arr;
-    float *mean_az_arr;
-    float *mean_mv_arr;
-    float *std_mv_arr;
-    uint8_t windowSize;
-}MPUData;
+#include <MPU6050.h>
 
 typedef struct{
     float heart_rate;
@@ -34,14 +26,12 @@ class Sensors_Processes{
         Sensors_Processes(const Sensors_Processes&) = delete;
         Sensors_Processes& operator=(const Sensors_Processes&) = delete;
 
-        void mpuSetup();
     public:
         ~Sensors_Processes();
         static Sensors_Processes* getInstance();
         
-        MPUData readMPUData();
         void readTempData();
         void setup();
         bool getTempAvail();
-        bool getMovAvail();
+        void maxSetup();
 };
