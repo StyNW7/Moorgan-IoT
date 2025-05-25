@@ -139,9 +139,9 @@ void mpuSetup(Adafruit_MPU6050 *mpu){
 // a one time read method, and it reads data from multiple reading intervals 
 // stored in the FIFO. It is designed to be called from a main loop with delay 
 // (presumably from esp light sleep timer). Recommend to be called periodically
-MPUData readMPU() {
+MPUData *readMPUData() {
     // esp_timer_get_time() can also be used for ESP sleeping applications,
-    MPUData data;
+    MPUData *data = new MPUData;
 
     #ifdef MPU_INTERRUPT_PIN
     // Check for MPU's own FIFO overflow interrupt (optional failsafe)
@@ -250,12 +250,12 @@ MPUData readMPU() {
             }
         }
             // save the data to the data struct/object and return this object
-            data.mean_ax_arr = mean_ax_arr;
-            data.mean_ay_arr = mean_ay_arr;
-            data.mean_az_arr = mean_az_arr;
-            data.mean_mv_arr = mean_mv_arr;
-            data.std_mv_arr = std_mv_arr;
-            data.windowSize = num_total_windows;
+            data->mean_ax_arr = mean_ax_arr;
+            data->mean_ay_arr = mean_ay_arr;
+            data->mean_az_arr = mean_az_arr;
+            data->mean_mv_arr = mean_mv_arr;
+            data->std_mv_arr = std_mv_arr;
+            data->windowSize = num_total_windows;
         
         if (numSamples == 0) {
             xprintln("No accelerometer samples to compute statistics.");

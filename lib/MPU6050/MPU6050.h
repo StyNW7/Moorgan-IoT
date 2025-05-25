@@ -29,4 +29,4 @@ void writeMPURegister(uint8_t regAddress, uint8_t data);
 uint8_t readMPURegister(uint8_t regAddress);
 void readMPURegisters(uint8_t regAddress, uint8_t count, uint8_t *dest);
 void mpuSetup(Adafruit_MPU6050 *mpu);
-MPUData readMPU();
+MPUData *readMPUData();

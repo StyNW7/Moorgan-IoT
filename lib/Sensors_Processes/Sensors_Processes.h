@@ -3,24 +3,16 @@
 #include <Sensors_Processes.h>
 #include <Adafruit_MPU6050.h>
 #include <DS18B20.h>
+#include <DataStream.h>
 #include <MPU6050.h>
-
-typedef struct{
-    float heart_rate;
-    float oxygen;
-}MAXData;
-
-typedef struct{
-    float temp_in_c;
-    MPUData mpu_data;
-    MAXData max_data;
-}MainData;
+#include <MAX30102.h>
 
 class Sensors_Processes{
     private:
         DS18B20 *dsb;
         Adafruit_MPU6050 *mpu;
         MAX30102 *max;
+        DataStream *datastream;
         
         Sensors_Processes();
         static Sensors_Processes *instance;
