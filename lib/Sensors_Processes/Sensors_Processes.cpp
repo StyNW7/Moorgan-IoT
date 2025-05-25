@@ -24,7 +24,6 @@
 #define MPU6050_RA_FIFO_R_W     0x74
 
 // function declarations
-void writeTemp(void *arg);
 
 
 #ifdef MPU_INTERRUPT_PIN
