@@ -59,7 +59,6 @@ void serializeLinkedListToJson(const DataNode* head, JsonDocument& doc) {
 //
 //
 //
-//
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -293,5 +292,8 @@ void loop() {
 
 
 
+operating for 3 months
+less than 35mAh per day
+less than 1.45mAh per hour
 
 

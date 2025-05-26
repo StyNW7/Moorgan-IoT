@@ -7,7 +7,7 @@
 #include <Tools.h>
 #include <UUID.h>
 #include <Preferences.h>
-#include <FreeRTOS/task.h>
+#include <freertos/task.h>
 
 void provision_wifi_check (void *in) ;
 void SysProvEvent(arduino_event_t *sys_event, Provision *provision);
@@ -33,7 +33,9 @@ Provision* Provision::getInstance() {
 
 Provision::Provision() {
     this->uuid = new UUID();
+    this->retry_connection_counter=0;
     this->redo_provision = false;
+    this->is_provisioned = false;
     this->connected = false;
     this->pop = NULL;
 }
@@ -53,6 +55,26 @@ Provision::~Provision() {
     }
 }
 
+bool Provision::getIsProvisioned(){
+    return this->is_provisioned;
+}
+
+uint8_t Provision::getRetryConnectionCounter(){
+    return this->is_provisioned;
+}
+
+void Provision::setIsProvisioned(bool tof){
+    this->is_provisioned = tof;
+}
+
+void Provision::addToRetryConnectionCounter(){
+    ++(this->retry_connection_counter);
+}
+
+void Provision::resetRetryConnectionCounter(){
+    this->retry_connection_counter = 0;
+}
+
 void Provision::setPop(const char * pop) {
     if(this->pop){
         free(this->pop);
@@ -65,7 +87,9 @@ void Provision::setPop(const char * pop) {
 
 
 void Provision::setupProvision() {
-    
+    // Suspend all tasks except the current one
+    vTaskSuspendAll();
+
     Preferences pref;
     // uuid creation system (for unique id every device)
     pref.begin("uuid",true);
@@ -108,31 +132,32 @@ void Provision::setupProvision() {
     );
 
     #ifdef DEVMODE
-        ProvisioningData *provData = new ProvisioningData{
-            this->pop,
-            (char *)PROVISIONING_SERVICE_NAME,
-            &this->connected
-        };
-
-        xTaskCreate(
-            provision_wifi_check,
-            "wifi_check",
-            2048,
-            (void *)provData,
-            1,
-            NULL
-        );
-    #else
-        xTaskCreate(
-            provision_wifi_check,
-            "wifi_check",
-            2048,
-            (void *)&this->connected,
-            1,
-            NULL
-        );
+        xprintln("Connecting to WiFi...");
+        WiFiProv.printQR(PROVISIONING_SERVICE_NAME, (const char*)this->pop, "BLE");
+        while (true) {
+            if (WiFi.status() == WL_CONNECTED) {
+                xprintln("WiFi connected !!!");
+                this->connected = true;
+                // setup time
+                configTime(GMTOFFSET_INDO, 0, NTPSERVER);
+                xprintln("Time configured via NTP.");
+                break;
+            }
+            delay(1000);// blocking delay
+        }
+        #else
+        while (true) {
+            if (WiFi.status() == WL_CONNECTED) {
+                this->connected = true;
+                configTime(GMTOFFSET_INDO, 0, NTPSERVER);
+                break;
+            }
+            delay(1000);
+        }
     #endif
-
+    
+    is_provisioned = true;
+    xTaskResumeAll();
 }
 
 
@@ -144,23 +169,25 @@ void Provision::setupProvision() {
 void SysProvEvent(arduino_event_t *sys_event, Provision *provision) {
     switch (sys_event->event_id) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        provision->resetRetryConnectionCounter();
         xprint("\nConnected IP address : ");
         xprintln(IPAddress(sys_event->event_info.got_ip.ip_info.ip.addr));
         wifi_prov_mgr_deinit(); // De-initialize the provisioning manager to stop the provisioning process
         xprintln("Provisioning stopped");
+
         break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
-        if(provision->getRedoProvision()){
+        if(provision->getRetryConnectionCounter() >= CONNECTIONRETRYCOUNT){
             provision->setConnected(false);
+            vTaskSuspendAll();
             WiFiProv.beginProvision(
                 WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BLE, WIFI_PROV_SECURITY_1, provision->getPop(), PROVISIONING_SERVICE_NAME, NULL, provision->getUUID()->getUUID(), false
             );
             xprintln("Provisioning started");
         } else {
-            provision->setRedoProvision(true);
+            provision->addToRetryConnectionCounter();
         }
 
-        xprintln("\nDisconnected. Provision started and reconnecting to the AP again... ");
         break;
     }
     case ARDUINO_EVENT_PROV_START:            xprintln("\nProvisioning started\nGive Credentials of your access point using smartphone app"); break;
@@ -192,35 +219,3 @@ void SysProvEvent(arduino_event_t *sys_event, Provision *provision) {
     default:                              break;
     }
 }
-
-#ifdef DEVMODE
-void provision_wifi_check (void *in) {
-    // this is the task that will be used to check if the device is connected to the wifi
-    ProvisioningData *data = (ProvisioningData *)in;
-    xprintln("Connecting to WiFi...");
-    WiFiProv.printQR((const char*)data->service_name, (const char*)data->pop, "BLE");
-    while (true) {
-        if (WiFi.status() == WL_CONNECTED) {
-            xprintln("WiFi connected !!!");
-            *data->connected = true;
-            break;
-        }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    delete in;
-    vTaskDelete(NULL);
-}
-#else
-void provision_wifi_check (void *in) {
-    // this is the task that will be used to check if the device is connected to the wifi
-    bool *connected = (bool *)in;
-    while (true) {
-        if (WiFi.status() == WL_CONNECTED) {
-            *connected = true;
-            break;
-        }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    vTaskDelete(NULL);
-}
-#endif

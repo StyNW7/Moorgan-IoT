@@ -9,6 +9,8 @@ class Provision {
         UUID* uuid;
         bool redo_provision;
         bool connected;
+        bool is_provisioned;
+        uint8_t retry_connection_counter;
         char* pop;
         
         // Private constructor to prevent external instantiation
@@ -28,6 +30,11 @@ class Provision {
         // Static method to get the singleton instance
         static Provision* getInstance();
         
+        bool getIsProvisioned();
+        uint8_t getRetryConnectionCounter();
+        void setIsProvisioned(bool tof);
+        void addToRetryConnectionCounter();
+        void resetRetryConnectionCounter();
         void setupProvision();
         void setPop(const char * pop);
         char* getPop() { return this->pop; }

@@ -1,12 +1,10 @@
 #include <Sensors_Processes.h>
 #include <config.h>
+#include <WiFi.h>
 #include <Tools.h>
 #include <MPU6050.h>
 #include <MAX30102.h>
 #include "DS18B20.h"
-
-MainData minuteDatas[60];
-
 
 // function declarations
 Sensors_Processes* Sensors_Processes::instance = nullptr;
@@ -103,6 +101,8 @@ float Sensors_Processes::readTempData(){
 }
 
 void Sensors_Processes::pullData(){
+    // if(connected to wifi and mqtt connection established)
+
     MainData *data = new MainData();
     
     if(getTempAvail()){
@@ -123,6 +123,8 @@ void Sensors_Processes::pullData(){
         xprintln("MAX30102 sensor not available.");
     }
 
+    data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT)));
+
     // Add the data to the data stream
     if(datastream){
         datastream->addData(data);
@@ -130,5 +132,8 @@ void Sensors_Processes::pullData(){
         xprintln("Data stream not initialized.");
         delete data;
     }
+
+    // make the esp32 sleep for a minute
+    
     
 }

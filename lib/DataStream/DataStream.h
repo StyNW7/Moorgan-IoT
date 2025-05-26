@@ -7,6 +7,7 @@ typedef struct {
     float temp_in_c;
     MPUData *mpu_data;
     MAXData max_data;
+    float distance_from_wifi_m;
     time_t timestamp;
     MainData *next;
 }MainData;
