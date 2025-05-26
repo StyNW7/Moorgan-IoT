@@ -14,8 +14,8 @@ void setup() {
   #endif
 
   Provision::getInstance()->setupProvision();
-
   Sensors_Processes::getInstance()->setup();
+
 
   xTaskCreate(
     dataPullingTask,

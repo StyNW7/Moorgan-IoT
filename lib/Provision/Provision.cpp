@@ -2,6 +2,7 @@
 #include "Provision.h"
 #include "wifi_provisioning/manager.h"
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <WiFiProv.h>
 #include <config.h>
 #include <Tools.h>
@@ -140,6 +141,8 @@ void Provision::setupProvision() {
                 this->connected = true;
                 // setup time
                 configTime(GMTOFFSET_INDO, 0, NTPSERVER);
+                esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+
                 xprintln("Time configured via NTP.");
                 break;
             }

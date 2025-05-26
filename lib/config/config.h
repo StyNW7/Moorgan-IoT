@@ -23,3 +23,5 @@
 #define CONNECTIONRETRYCOUNT 20
 #define NTPSERVER "pool.ntp.org"
 #define GMTOFFSET_INDO (7*3600)
+
+#define MICROSECOND_SLEEP (60ULL * 1000000ULL) // 1 minute in microseconds

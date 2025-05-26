@@ -4,6 +4,7 @@
 #include <Tools.h>
 #include <MPU6050.h>
 #include <MAX30102.h>
+#include <esp_wifi.h>
 #include "DS18B20.h"
 
 // function declarations
@@ -133,10 +134,8 @@ void Sensors_Processes::pullData(){
         delete data;
     }
 
-    // make the esp32 sleep for a minute
-    esp_sleep_enable_timer_wakeup(microseconds_to_sleep); //set to how many microsecond for one sleep
     xflush(); // Ensure all serial data is sent before sleeping
-    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+    esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP); //set to how many microsecond for one sleep
     esp_light_sleep_start();
     
 }
