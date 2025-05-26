@@ -134,6 +134,9 @@ void Sensors_Processes::pullData(){
     }
 
     // make the esp32 sleep for a minute
-    
+    esp_sleep_enable_timer_wakeup(microseconds_to_sleep); //set to how many microsecond for one sleep
+    xflush(); // Ensure all serial data is sent before sleeping
+    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+    esp_light_sleep_start();
     
 }

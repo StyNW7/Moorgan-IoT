@@ -30,10 +30,15 @@ inline void xprintf(const char* format, ...) {
     va_end(args);
     Serial.print(buf);
 }
+
+void xflush(){
+    Serial.flush();
+}
 #else
 template<typename T>
 void xprint(const T&) {}
 template<typename T>
 void xprintln(const T&) {}
 inline void xprintf(const char*, ...) {}
+void xflush()
 #endif
