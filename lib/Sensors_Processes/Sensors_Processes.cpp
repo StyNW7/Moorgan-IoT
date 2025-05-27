@@ -1,11 +1,14 @@
 #include <Sensors_Processes.h>
 #include <config.h>
+#include <stdlib.h>
+#include <string.h>
 #include <WiFi.h>
 #include <Tools.h>
 #include <MPU6050.h>
 #include <MAX30102.h>
 #include <esp_wifi.h>
 #include <BatteryMonitor.h>
+#include <ArduinoJson.h>
 #include "DS18B20.h"
 #include <AzureIoTHub.h>
 #include <IOTHubInstance.h>
@@ -22,7 +25,7 @@ Sensors_Processes::Sensors_Processes() {
     max = nullptr;
     datastream = nullptr;
     uploadinterval= 60ULL;
-    readingitter = 60; // 60 times reading itteration for an hour
+    readingitter = DEFAULTUPLOADINTERVAL; // 60 times reading itteration for an hour
     readingcount = 0;
 }
 
@@ -158,7 +161,7 @@ void Sensors_Processes::pullData(){
     
     if(WiFi.status() == WL_CONNECTED ){
         // check if mqtt connection is established or not
-        if (IOTHubInstance::getInstance()->isAzureIoTConnected() != NULL) {
+        if (IOTHubInstance::getInstance()->isAzureIoTConnected()) {
             // check if enough iterations have been done before sending telemetry data
             if(readingcount >= readingitter){
                 // parse into json format
@@ -194,6 +197,93 @@ void Sensors_Processes::sendTelemetryRequest(){
 }
 
 
-char *Sensors_Processes::parsingDatastreamToJson(){
-    // use malloc to allocate memory for the JSON buffer string
+char* Sensors_Processes::parsingDatastreamToJson() {
+    if (datastream == nullptr || datastream->getSize() == 0) {
+        // ... (existing code for empty datastream) ...
+    }
+
+    // ArduinoJson v7: DynamicJsonDocument is now just JsonDocument.
+    // Capacity calculation is less critical as it can grow, but good for initial estimate.
+    const size_t capacityPerNode = 800;
+    size_t streamSize = datastream->getSize();
+    // For v7, you typically don't need to pre-calculate JSON_ARRAY_SIZE.
+    // Just provide a reasonable starting capacity.
+    JsonDocument doc; // Default constructor, will allocate as needed.
+                      // Or, if you want to give a hint: JsonDocument doc(streamSize * capacityPerNode);
+
+    JsonArray rootArray = doc.to<JsonArray>();
+
+    MainData* current = datastream->getHead();
+    while (current != nullptr) {
+        // v7: Use add<JsonObject>() for arrays or obj[key].to<JsonObject>() for objects
+        JsonObject nodeObj = rootArray.add<JsonObject>();
+
+        // Timestamp (ISO 8601 format in UTC)
+        char timeStr[30];
+        strftime(timeStr, sizeof(timeStr), "%Y-%m-%dT%H:%M:%SZ", gmtime(&current->timestamp));
+        nodeObj["timestamp"] = timeStr;
+
+        nodeObj["temp_in_c"] = serialized(String(current->temp_in_c, 2));
+        nodeObj["battery_percentage"] = serialized(String(current->battery_percentage, 1));
+        nodeObj["wifi_distance_m"] = serialized(String(current->distance_from_wifi_m, 2));
+
+        // MAX30102 Data
+        // v7: Use nodeObj[key].to<JsonObject>()
+        JsonObject maxObj = nodeObj["max30102"].to<JsonObject>();
+        maxObj["heart_rate"] = serialized(String(current->max_data.heart_rate, 1));
+        maxObj["oxygen"] = serialized(String(current->max_data.oxygen, 1));
+
+        // MPU6050 Data
+        if (current->mpu_data != nullptr) {
+            // v7: Use nodeObj[key].to<JsonObject>()
+            JsonObject mpuObj = nodeObj["mpu6050"].to<JsonObject>();
+            const MPUData* mpu = current->mpu_data;
+            mpuObj["window_size"] = mpu->windowSize;
+
+            auto serializeFloatArray = [&](JsonArray& arr, float* data, uint8_t size) {
+                if (data == nullptr) return;
+                for (uint8_t i = 0; i < size; ++i) {
+                    arr.add(serialized(String(data[i], 3)));
+                }
+            };
+
+            if (mpu->windowSize > 0) {
+                // v7: Use mpuObj[key].to<JsonArray>()
+                JsonArray axArr = mpuObj["mean_ax"].to<JsonArray>();
+                serializeFloatArray(axArr, mpu->mean_ax_arr, mpu->windowSize);
+
+                JsonArray ayArr = mpuObj["mean_ay"].to<JsonArray>();
+                serializeFloatArray(ayArr, mpu->mean_ay_arr, mpu->windowSize);
+
+                JsonArray azArr = mpuObj["mean_az"].to<JsonArray>();
+                serializeFloatArray(azArr, mpu->mean_az_arr, mpu->windowSize);
+
+                JsonArray mvArr = mpuObj["mean_mv"].to<JsonArray>();
+                serializeFloatArray(mvArr, mpu->mean_mv_arr, mpu->windowSize);
+
+                JsonArray stdArr = mpuObj["std_mv"].to<JsonArray>();
+                serializeFloatArray(stdArr, mpu->std_mv_arr, mpu->windowSize);
+            }
+        } else {
+            nodeObj["mpu6050"] = nullptr;
+        }
+
+        current = current->next;
+    }
+
+    String outputJsonString;
+    serializeJson(doc, outputJsonString);
+
+    if (doc.overflowed()) {
+        // ... (existing overflow handling) ...
+    }
+
+    // ... (existing code to allocate and return char*) ...
+    char* json_c_str = (char*)malloc(outputJsonString.length() + 1);
+    if (json_c_str == nullptr) {
+        xprintln("Failed to allocate memory for JSON C-string!");
+        return nullptr;
+    }
+    strcpy(json_c_str, outputJsonString.c_str());
+    return json_c_str;
 }

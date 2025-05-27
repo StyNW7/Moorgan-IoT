@@ -7,7 +7,7 @@
 #include <WiFiProv.h>
 #include <config.h>
 #include <Tools.h>
-#include <UUID.h>
+#include <UUIDs.h>
 #include <Preferences.h>
 #include <freertos/task.h>
 
@@ -34,7 +34,7 @@ Provision* Provision::getInstance() {
 }
 
 Provision::Provision() {
-    this->uuid = new UUID();
+    this->uuid = new UUIDs();
     this->retry_connection_counter=0;
     this->redo_provision = false;
     this->is_provisioned = false;
@@ -140,8 +140,8 @@ void Provision::setupProvision() {
             xprintln("WiFi connected !!!");
             this->connected = true;
             // setup time
-            IOTHubInstance::syncTimeNTP();
-            if (!IOTHubInstance::setupAzureIoTClient()) {
+            IOTHubInstance::getInstance()->syncTimeNTP();
+            if (!IOTHubInstance::getInstance()->setupAzureIoTClient()) {
                 xprintln("Failed to initialize Azure IoT Hub client. Check configurations.");
                 // You might want to loop here or restart ESP
             }

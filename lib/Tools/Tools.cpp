@@ -48,4 +48,8 @@ void checkFlashPSRAM(){
     Serial.print("The flash size is ");
     Serial.println(ESP.getFlashChipSize());
 }
+
+void xflush(){
+    Serial.flush();
+}
 #endif

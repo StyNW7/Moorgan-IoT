@@ -1,12 +1,12 @@
 #pragma once
-#include <UUID.h>
+#include <UUIDs.h>
 
 // This is a Provisioning extension library for ESP32
 // It provides a singleton class to manage the provisioning process
 
 class Provision {
     private:
-        UUID* uuid;
+        UUIDs* uuid;
         bool redo_provision;
         bool connected;
         bool is_provisioned;
@@ -42,5 +42,5 @@ class Provision {
         void setRedoProvision(bool redo_provision) { this->redo_provision = redo_provision; }
         bool getConnected() { return this->connected; }
         void setConnected(bool connected) { this->connected = connected; }
-        UUID* getUUID() { return this->uuid; }
+        UUIDs* getUUID() { return this->uuid; }
 };

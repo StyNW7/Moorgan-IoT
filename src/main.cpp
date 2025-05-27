@@ -6,6 +6,8 @@
 #include <Sensors_Processes.h>
 #include <Provision.h> // Singleton class for provisioning & include UUID data
 
+void dataPullingTask(void *pvParameter);
+
 void loop(){}
 
 void setup() {

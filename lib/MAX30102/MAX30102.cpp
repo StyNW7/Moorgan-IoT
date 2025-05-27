@@ -154,7 +154,7 @@ bool MAX30102::readRegister(uint8_t reg_addr, uint8_t *value) {
         xprintln("I2C: Failed to send reg addr for read");
         return false;
     }
-    if (Wire.requestFrom(MAX30102_ADDRESS, (uint8_t)1) == 1) {
+    if (Wire.requestFrom((uint8_t)MAX30102_ADDRESS, (uint8_t)1) == 1) {
         *value = Wire.read();
         return true;
     }
@@ -170,7 +170,7 @@ bool MAX30102::readBurst(uint8_t start_reg_addr, uint8_t *buffer, uint8_t count)
         xprintln("I2C: Failed to send reg addr for burst read");
         return false;
     }
-    if (Wire.requestFrom(MAX30102_ADDRESS, count) == count) {
+    if (Wire.requestFrom((uint8_t)MAX30102_ADDRESS, count) == count) {
         for (uint8_t i = 0; i < count; i++) {
             buffer[i] = Wire.read();
         }

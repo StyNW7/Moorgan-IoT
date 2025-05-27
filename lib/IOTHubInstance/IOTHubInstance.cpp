@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <UUIDs.h>
 #include <Provision.h>
 #include <config.h> // For IOTHUB_CONNECTION_STRING, MQTT_KEEP_ALIVE_MINUTES, etc.
 #include <Tools.h>
@@ -14,7 +15,7 @@
 // Define the Azure IoT Hub Root CA Certificate here
 // IMPORTANT: YOU MUST PROVIDE THIS CERTIFICATE STRING.
 // This could also be a static const member of the class, initialized here.
-const char* AZURE_IOT_ROOT_CA_CERTIFICATE = ""; // PASTE YOUR CERTIFICATE HERE
+extern const char* AZURE_IOT_ROOT_CA_CERTIFICATE; // PASTE YOUR CERTIFICATE HERE
 
 // Initialize static instance pointer
 IOTHubInstance* IOTHubInstance::instance = nullptr;
@@ -164,23 +165,6 @@ bool IOTHubInstance::isAzureIoTConnected() {
     return iotHubConnected;
 }
 
-// void IOTHubInstance::loop() {
-//     unsigned long nowMillis = millis();
-//     if (something trigger this ) {
-//         lastTelemetrySend = nowMillis;
-
-//         float temperature = 20.0 + (esp_random() % 100) / 10.0;
-//         float humidity = 50.0 + (esp_random() % 200) / 10.0;
-//         char jsonBuffer[256];
-//         snprintf(jsonBuffer, sizeof(jsonBuffer),
-//                  "{\"temperature\":%.2f, \"humidity\":%.2f, \"deviceId\":\"%s\", \"messageId\":%lu}",
-//                  temperature, humidity, Provision::getInstance()->getUUID()->getStringc(), millis());
-
-//         sendJsonToAzure(jsonBuffer);
-//     }
-//     delay(10); // Reduced delay, DoWork should be called frequently.
-// }
-
 // --- Static Callback Method Implementations ---
 
 void IOTHubInstance::connectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void* userContextCallback) {
@@ -240,6 +224,13 @@ IOTHUBMESSAGE_DISPOSITION_RESULT IOTHubInstance::receiveMessageCallback(IOTHUB_M
         temp[size] = '\0';
         xprint("Received C2D Message: ");
         xprintln(temp);
+
+        ///////////////////////////////////
+        //                               //
+        // Process the message as needed //
+        //                               //
+        ///////////////////////////////////
+
         free(temp);
         return IOTHUBMESSAGE_ACCEPTED;
     }
@@ -248,3 +239,6 @@ IOTHUBMESSAGE_DISPOSITION_RESULT IOTHubInstance::receiveMessageCallback(IOTHUB_M
 IOTHUB_CLIENT_LL_HANDLE IOTHubInstance::getIotHubClientHandle(){
     return iotHubClientHandle;
 }
+
+
+const char* AZURE_IOT_ROOT_CA_CERTIFICATE = "";

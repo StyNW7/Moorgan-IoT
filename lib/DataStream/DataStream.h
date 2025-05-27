@@ -3,7 +3,7 @@
 #include <MAX30102.h>
 #include <time.h>
 
-typedef struct {
+struct MainData {
     float temp_in_c;
     MPUData *mpu_data;
     MAXData max_data;
@@ -11,7 +11,7 @@ typedef struct {
     time_t timestamp;
     float battery_percentage;
     MainData *next;
-}MainData;
+};
 
 
 class DataStream {
