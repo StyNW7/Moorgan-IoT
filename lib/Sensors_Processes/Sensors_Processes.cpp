@@ -5,6 +5,7 @@
 #include <MPU6050.h>
 #include <MAX30102.h>
 #include <esp_wifi.h>
+#include <BatteryMonitor.h>
 #include "DS18B20.h"
 
 // function declarations
@@ -84,6 +85,7 @@ void Sensors_Processes::setup(){
     dsb->begin();
     mpuSetup(mpu);
     max->setup();
+    setupBatteryMon();
 }
 
 // all the temperature sensor methods
@@ -136,6 +138,9 @@ void Sensors_Processes::pullData(){
     }
 
     data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT)));
+
+    // add battery info to the main data frame
+    data->battery_percentage = getBatteryCapacity();
 
     // Add the data to the data stream
     if(datastream){

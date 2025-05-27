@@ -9,6 +9,7 @@ typedef struct {
     MAXData max_data;
     float distance_from_wifi_m;
     time_t timestamp;
+    float battery_percentage;
     MainData *next;
 }MainData;
 

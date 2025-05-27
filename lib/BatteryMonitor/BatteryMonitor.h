@@ -1,0 +1,3 @@
+
+void setupBatteryMon();
+float getBatteryCapacity();
