@@ -1,27 +1,27 @@
 #include <Arduino.h>
 #include <Tools.h>
 #include <config.h>
-#include "UUID.h"
+#include "UUIDs.h"
 #include <esp_system.h>
 #include <cstring>
 
-UUID::UUID() {
+UUIDs::UUIDs() {
     memset(this->uuid, 0, sizeof(this->uuid));
 }
 
-uint8_t* UUID::getUUID() {
+uint8_t* UUIDs::getUUID() {
     return this->uuid;
 }
 
-size_t UUID::getSize() {
+size_t UUIDs::getSize() {
     return sizeof(this->uuid);
 }
 
-void UUID::setUUID(const uint8_t uuid[16]) {
+void UUIDs::setUUID(const uint8_t uuid[16]) {
     memcpy(this->uuid, uuid, sizeof(this->uuid));
 }
 
-void UUID::generate() {
+void UUIDs::generate() {
     esp_fill_random(this->uuid, sizeof(this->uuid));
     // Set version to 4 -- truly random
     this->uuid[6] = (this->uuid[6] & 0x0F) | 0x40;
@@ -29,7 +29,7 @@ void UUID::generate() {
     this->uuid[8] = (this->uuid[8] & 0x3F) | 0x80;
 }
 
-char* UUID::getStringc() {
+char* UUIDs::getStringc() {
     char* uuid_str = (char*)malloc(37); // 36 characters + null terminator
     if (uuid_str) {
         snprintf(uuid_str, 37,
@@ -42,7 +42,7 @@ char* UUID::getStringc() {
     return uuid_str;
 }
 
-void UUID::print() {
+void UUIDs::print() {
 #ifdef DEVMODE
     char* uuid_str = this->getStringc();
     if (uuid_str) {
@@ -52,7 +52,7 @@ void UUID::print() {
 #endif
 }
 
-bool UUID::isUnset() const {
+bool UUIDs::isUnset() const {
     for (int i = 0; i < sizeof(this->uuid); ++i) {
         if (uuid[i] != 0) return false;
     }

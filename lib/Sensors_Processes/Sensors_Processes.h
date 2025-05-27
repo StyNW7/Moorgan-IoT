@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Sensors_Processes.h>
 #include <Adafruit_MPU6050.h>
 #include <DS18B20.h>
 #include <DataStream.h>
@@ -27,6 +26,8 @@ class Sensors_Processes{
         static Sensors_Processes* getInstance();
         
         unsigned long long getUploadInterval();
+        void sendTelemetryRequest();
+        char *parsingDatastreamToJson();
         void setUploadInterval(unsigned long long interv);
         float readTempData();
         void setup();

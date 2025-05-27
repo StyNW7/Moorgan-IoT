@@ -1,3 +1,4 @@
+#pragma once
 #define DEVMODE
 #define PROVISIONING_SERVICE_NAME "PROV_moorgan_colar" // service name have to start with PROV_
 
@@ -22,7 +23,21 @@
 #define PATHLOSSEXPONENT 2.3f
 #define CONNECTIONRETRYCOUNT 20
 #define NTPSERVER "pool.ntp.org"
+#define NTPSERVER2 "time.nist.gov"
 #define GMTOFFSET_INDO (7*3600)
+
+// uploading interval
+#define DEFAULTUPLOADINTERVAL 2 // don't forget to set this back to 60
 
 // Battery percentage info line
 #define BATTERYADCPIN 4
+
+// Sleep settings
+#define MICROSECOND_SLEEP (60ULL*1000000ULL) // 1 minute in microseconds
+
+// MQTT connection settings
+#define MQTT_KEEP_ALIVE_MINUTES 30 // MQTT Keep-Alive setting for the SDK
+#define IOTHUB_CONNECTION_STRING "YOUR_DEVICE_CONNECTION_STRING" // Get this from Azure portal: IoT Hub -> Devices -> Your Device -> Primary Connection String
+#define GMT_OFFSET_SEC (7 * 3600) // WIB (Western Indonesian Time) is UTC+7
+#define DAYLIGHT_OFFSET_SEC 0 
+        

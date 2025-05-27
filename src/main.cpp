@@ -6,6 +6,8 @@
 #include <Sensors_Processes.h>
 #include <Provision.h> // Singleton class for provisioning & include UUID data
 
+void dataPullingTask(void *pvParameter);
+
 void loop(){}
 
 void setup() {
@@ -13,7 +15,7 @@ void setup() {
     Serial.begin(115200);
   #endif
 
-  // let provision do it's thing
+  // let provision do it's thing and also setup for other connections (mqtt to Azure IoT Hub)
   Provision::getInstance()->setupProvision();
   // initiate setup for all the sensors first
   Sensors_Processes::getInstance()->setup();

@@ -3,10 +3,11 @@
 #include "wifi_provisioning/manager.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <IOTHubInstance.h>
 #include <WiFiProv.h>
 #include <config.h>
 #include <Tools.h>
-#include <UUID.h>
+#include <UUIDs.h>
 #include <Preferences.h>
 #include <freertos/task.h>
 
@@ -33,7 +34,7 @@ Provision* Provision::getInstance() {
 }
 
 Provision::Provision() {
-    this->uuid = new UUID();
+    this->uuid = new UUIDs();
     this->retry_connection_counter=0;
     this->redo_provision = false;
     this->is_provisioned = false;
@@ -132,32 +133,25 @@ void Provision::setupProvision() {
         WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BLE, WIFI_PROV_SECURITY_1, this->pop, PROVISIONING_SERVICE_NAME, NULL, this->uuid->getUUID(), false
     );
 
-    #ifdef DEVMODE
-        xprintln("Connecting to WiFi...");
-        WiFiProv.printQR(PROVISIONING_SERVICE_NAME, (const char*)this->pop, "BLE");
-        while (true) {
-            if (WiFi.status() == WL_CONNECTED) {
-                xprintln("WiFi connected !!!");
-                this->connected = true;
-                // setup time
-                configTime(GMTOFFSET_INDO, 0, NTPSERVER);
-                esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
-
-                xprintln("Time configured via NTP.");
-                break;
+    xprintln("Connecting to WiFi...");
+    WiFiProv.printQR(PROVISIONING_SERVICE_NAME, (const char*)this->pop, "BLE");
+    while (true) {
+        if (WiFi.status() == WL_CONNECTED) {
+            xprintln("WiFi connected !!!");
+            this->connected = true;
+            // setup time
+            IOTHubInstance::getInstance()->syncTimeNTP();
+            if (!IOTHubInstance::getInstance()->setupAzureIoTClient()) {
+                xprintln("Failed to initialize Azure IoT Hub client. Check configurations.");
+                // You might want to loop here or restart ESP
             }
-            delay(1000);// blocking delay
+            esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+            
+            xprintln("Time configured via NTP.");
+            break;
         }
-        #else
-        while (true) {
-            if (WiFi.status() == WL_CONNECTED) {
-                this->connected = true;
-                configTime(GMTOFFSET_INDO, 0, NTPSERVER);
-                break;
-            }
-            delay(1000);
-        }
-    #endif
+        delay(1000);// blocking delay
+    }
     
     is_provisioned = true;
     xTaskResumeAll();
