@@ -161,6 +161,6 @@ void Sensors_Processes::pullData(){
     
     
     xflush(); // Ensure all serial data is sent before sleeping
-    esp_sleep_enable_timer_wakeup(uploadinterval * 1000000ULL); //set to how many microsecond for one sleep
+    esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP); //set to how many microsecond for one sleep
     esp_light_sleep_start();
 }

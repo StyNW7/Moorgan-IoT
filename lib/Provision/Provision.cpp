@@ -3,6 +3,7 @@
 #include "wifi_provisioning/manager.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <IOTHub.h>
 #include <WiFiProv.h>
 #include <config.h>
 #include <Tools.h>
@@ -140,9 +141,13 @@ void Provision::setupProvision() {
                 xprintln("WiFi connected !!!");
                 this->connected = true;
                 // setup time
-                configTime(GMTOFFSET_INDO, 0, NTPSERVER);
+                syncTimeNTP();
+                if (!setupAzureIoTClient()) {
+                    xprintln("Failed to initialize Azure IoT Hub client. Check configurations.");
+                    // You might want to loop here or restart ESP
+                }
                 esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
-
+                
                 xprintln("Time configured via NTP.");
                 break;
             }
@@ -152,7 +157,12 @@ void Provision::setupProvision() {
         while (true) {
             if (WiFi.status() == WL_CONNECTED) {
                 this->connected = true;
-                configTime(GMTOFFSET_INDO, 0, NTPSERVER);
+                syncTimeNTP();
+                if (!setupAzureIoTClient()) {
+                    xprintln("Failed to initialize Azure IoT Hub client. Check configurations.");
+                    // You might want to loop here or restart ESP
+                }
+                esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
                 break;
             }
             delay(1000);
