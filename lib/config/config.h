@@ -36,3 +36,4 @@
 #define IOTHUB_CONNECTION_STRING "YOUR_DEVICE_CONNECTION_STRING" // Get this from Azure portal: IoT Hub -> Devices -> Your Device -> Primary Connection String
 #define GMT_OFFSET_SEC (7 * 3600) // WIB (Western Indonesian Time) is UTC+7
 #define DAYLIGHT_OFFSET_SEC 0 
+#define TELEMETRY_INTERVAL_MINUTES 

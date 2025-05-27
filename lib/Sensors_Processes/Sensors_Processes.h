@@ -27,6 +27,7 @@ class Sensors_Processes{
         static Sensors_Processes* getInstance();
         
         unsigned long long getUploadInterval();
+        void sendTelemetryRequest();
         void setUploadInterval(unsigned long long interv);
         float readTempData();
         void setup();

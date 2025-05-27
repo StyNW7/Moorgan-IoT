@@ -7,6 +7,8 @@
 #include <esp_wifi.h>
 #include <BatteryMonitor.h>
 #include "DS18B20.h"
+#include <AzureIoTHub.h>
+#include <IOTHubInstance.h>
 
 // function declarations
 Sensors_Processes* Sensors_Processes::instance = nullptr;
@@ -114,6 +116,8 @@ float Sensors_Processes::readTempData(){
     return dsb->getTempC();
 }
 
+
+// Holy Grail function of the entire project where all the logic is implemented
 void Sensors_Processes::pullData(){
     // if(connected to wifi and mqtt connection established)
 
@@ -149,18 +153,47 @@ void Sensors_Processes::pullData(){
         xprintln("Data stream not initialized.");
         delete data;
     }
+
+    ++readingcount;
     
-    if(WiFi.status() == WL_CONNECTED && ++readingcount >= readingitter){
+    if(WiFi.status() == WL_CONNECTED ){
         // check if mqtt connection is established or not
-        // parse into json format
-        // send telemetry data to mqtt service Azure IOT
-        // check if package sent successfuly
-        // then finish if so
+        if (IOTHubInstance::getInstance()->isAzureIoTConnected() != NULL) {
+            // check if enough iterations have been done before sending telemetry data
+            if(readingcount >= readingitter){
+                // parse into json format
+                sendTelemetryRequest();
+                // save the json format
+                // send telemetry data to mqtt service Azure IOT
+                // check if package sent successfuly
+                // then if finished, clear the data stream
+            }
+
+            // mqtt keep alive job
+            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
+        } else {
+            IOTHubInstance::getInstance()->setupAzureIoTClient(); // Try to set up again
+        }
     }
-    
     
     
     xflush(); // Ensure all serial data is sent before sleeping
     esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP); //set to how many microsecond for one sleep
     esp_light_sleep_start();
+}
+
+void Sensors_Processes::sendTelemetryRequest(){
+
+    char *jsonbuffer = parsingDatastreamToJson();
+
+    if(IOTHubInstance::getInstance()->sendJsonToAzure(jsonbuffer)){
+        delete[] jsonbuffer; // Free the allocated memory for JSON buffer
+        datastream->clearData(); // Clear the data stream after sending
+        xprintln("Telemetry data sent successfully.");
+    }
+}
+
+
+char *Sensors_Processes::parsingDatastreamToJson(){
+    // use malloc to allocate memory for the JSON buffer string
 }
