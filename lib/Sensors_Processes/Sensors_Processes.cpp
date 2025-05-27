@@ -18,6 +18,17 @@ Sensors_Processes::Sensors_Processes() {
     mpu = nullptr;
     max = nullptr;
     datastream = nullptr;
+    uploadinterval= 60ULL;
+    readingitter = 60; // 60 times reading itteration for an hour
+    readingcount = 0;
+}
+
+unsigned long long Sensors_Processes::getUploadInterval(){
+    return uploadinterval;
+}
+
+void Sensors_Processes::setUploadInterval(unsigned long long interv){
+    uploadinterval = interv;
 }
 
 Sensors_Processes* Sensors_Processes::getInstance() {
@@ -133,9 +144,18 @@ void Sensors_Processes::pullData(){
         xprintln("Data stream not initialized.");
         delete data;
     }
-
-    xflush(); // Ensure all serial data is sent before sleeping
-    esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP); //set to how many microsecond for one sleep
-    esp_light_sleep_start();
     
+    if(WiFi.status() == WL_CONNECTED && ++readingcount >= readingitter){
+        // check if mqtt connection is established or not
+        // parse into json format
+        // send telemetry data to mqtt service Azure IOT
+        // check if package sent successfuly
+        // then finish if so
+    }
+    
+    
+    
+    xflush(); // Ensure all serial data is sent before sleeping
+    esp_sleep_enable_timer_wakeup(uploadinterval * 1000000ULL); //set to how many microsecond for one sleep
+    esp_light_sleep_start();
 }

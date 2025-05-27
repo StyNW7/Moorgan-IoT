@@ -13,9 +13,15 @@ void setup() {
     Serial.begin(115200);
   #endif
 
+  // let provision do it's thing
   Provision::getInstance()->setupProvision();
+  // initiate setup for all the sensors first
   Sensors_Processes::getInstance()->setup();
 
+  // sleep to let the sensors read datas first
+  xflush(); // Ensure all serial data is sent before sleeping
+  esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP); //set to how many microsecond for one sleep
+  esp_light_sleep_start();
 
   xTaskCreate(
     dataPullingTask,
