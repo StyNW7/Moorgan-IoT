@@ -64,7 +64,7 @@ void mpuSetup(Adafruit_MPU6050 *mpu){
     xprintln("MPU6050 Found!");
 
     // Set Accelerometer Range (important for sensitivity calculation later)
-    mpu->setAccelerometerRange(MPU6050_RANGE_2_G); // Or MPU6050_RANGE_4_G, _8_G, _16_G
+    mpu->setAccelerometerRange(MPU6050_RANGE_8_G); // Or MPU6050_RANGE_4_G, _8_G, _16_G
     xprint("Accelerometer range set to: ");
     switch (mpu->getAccelerometerRange()) {
         case MPU6050_RANGE_2_G:  xprintln("+-2G");  break;
@@ -188,18 +188,35 @@ MPUData *readMPUData() {
         uint8_t windowSize = WINDOWSIZE;
 
         if (numSamples > 0 && windowSize > 0) {
-            num_total_windows = (numSamples + windowSize - 1) / windowSize;
+            num_total_windows = (numSamples + windowSize - 1) / windowSize; // Max potential windows
+        } else {
+            num_total_windows = 0;
         }
 
         // window feature array 
-        float *mean_ax_arr = (float *)calloc(num_total_windows, sizeof(float));
-        float *mean_ay_arr = (float *)calloc(num_total_windows, sizeof(float));
-        float *mean_az_arr = (float *)calloc(num_total_windows, sizeof(float));
-        float *mean_mv_arr = (float *)calloc(num_total_windows, sizeof(float));
-        float *std_mv_arr = (float *)calloc(num_total_windows, sizeof(float));
+        float *mean_ax_arr = nullptr;
+        float *mean_ay_arr = nullptr;
+        float *mean_az_arr = nullptr;
+        float *mean_mv_arr = nullptr;
+        float *std_mv_arr = nullptr;
+
+        if (num_total_windows > 0) {
+            mean_ax_arr = (float *)calloc(num_total_windows, sizeof(float));
+            mean_ay_arr = (float *)calloc(num_total_windows, sizeof(float));
+            mean_az_arr = (float *)calloc(num_total_windows, sizeof(float));
+            mean_mv_arr = (float *)calloc(num_total_windows, sizeof(float));
+            std_mv_arr = (float *)calloc(num_total_windows, sizeof(float));
+            // Check for calloc failure if you want to be extremely robust
+            if (!mean_ax_arr || !mean_ay_arr || !mean_az_arr || !mean_mv_arr || !std_mv_arr) {
+                xprintln("Error: calloc failed for MPU data arrays. No data will be processed.");
+                numSamples = 0; // Prevent further processing
+                num_total_windows = 0;
+            }
+        }
+
 
         // buffer to store feature temporarily
-        float temp_mv_g[windowSize] = {0};
+        float temp_mv_g[windowSize > 0 ? windowSize : 1] = {0}; // Avoid zero-size array if windowSize is 0
         
         // each window consist of that amount of sample, then it will be summed together to find
         // vm stdev, vm mean, x mean, y mean, z mean 
@@ -211,57 +228,114 @@ MPUData *readMPUData() {
             int16_t az_raw = (int16_t)((fifoBuffer[offset + 4] << 8) | fifoBuffer[offset + 5]);
 
             // Sensitivity for MPU6050_RANGE_8_G: 4096 LSB/g
-            float ax_g = (float)ax_raw / 4096.0f;
-            float ay_g = (float)ay_raw / 4096.0f;
-            float az_g = (float)az_raw / 4096.0f;
-            temp_mv_g[i % windowSize] = sqrtf(ax_g*ax_g + ay_g*ay_g + az_g*az_g);
+            // Ensure mpuSetup configures this range or adjust sensitivity accordingly.
+            // If using MPU6050_RANGE_2_G, sensitivity is 16384.0f
+            float sensitivity = 4096.0f; // Defaulting to 8G. Consider making this dynamic based on actual range set.
+            // Example: if (mpu->getAccelerometerRange() == MPU6050_RANGE_2_G) sensitivity = 16384.0f;
+            // For now, assuming it's fixed or mpuSetup always sets 8G.
+            float ax_g = (float)ax_raw / sensitivity;
+            float ay_g = (float)ay_raw / sensitivity;
+            float az_g = (float)az_raw / sensitivity;
+            
+            if (windowSize > 0) { // Protect against division by zero if windowSize is somehow 0
+                temp_mv_g[i % windowSize] = sqrtf(ax_g*ax_g + ay_g*ay_g + az_g*az_g);
 
-            // Use integer division for floor division in C++ (since both i and windowSize are integers)
-            mean_ax_arr[i / windowSize] += ax_g;
-            mean_ay_arr[i / windowSize] += ay_g;
-            mean_az_arr[i / windowSize] += az_g;
-            mean_mv_arr[i / windowSize] += temp_mv_g[i % windowSize];
-
-            if((i+1) % windowSize == 0){
-                mean_ax_arr[i / windowSize] /= windowSize;
-                mean_ay_arr[i / windowSize] /= windowSize;
-                mean_az_arr[i / windowSize] /= windowSize;
-                mean_mv_arr[i / windowSize] /= windowSize;
-                // Calculate standard deviation of mv_g for this window
-                float sum_sq = 0.0f;
-                for (uint8_t j = 0; j < windowSize; j++) {
-                    sum_sq += (temp_mv_g[j] - mean_mv_arr[i / windowSize]) * (temp_mv_g[j] - mean_mv_arr[i / windowSize]);
+                uint8_t current_window_idx = i / windowSize;
+                if (current_window_idx < num_total_windows) { // Boundary check
+                    mean_ax_arr[current_window_idx] += ax_g;
+                    mean_ay_arr[current_window_idx] += ay_g;
+                    mean_az_arr[current_window_idx] += az_g;
+                    mean_mv_arr[current_window_idx] += temp_mv_g[i % windowSize];
                 }
-                std_mv_arr[i / windowSize] = sqrtf(sum_sq / (windowSize-1));
-                // std_mv_arr = sqrtf(sumsq_ax / numSamples - mean_ax * mean_ax);
-                xprintf("mean for window %d : x %.2f, y %.2f, z %.2f\nMagnitude info: mean %.2f, std %f", (i / windowSize)+1, mean_ax_arr[i/windowSize], mean_ay_arr[i/windowSize], mean_az_arr[i/windowSize], mean_mv_arr[i/windowSize], std_mv_arr[i/windowSize]);
-            } else if(i+1 >= numSamples){
-                uint8_t partialWindowSize = (i+1) % windowSize;
-                mean_ax_arr[i/windowSize] /= partialWindowSize;
-                mean_ay_arr[i/windowSize] /= partialWindowSize;
-                mean_az_arr[i/windowSize] /= partialWindowSize;
-                mean_mv_arr[i/windowSize] /= partialWindowSize;
-                float sum_sq = 0.0f;
-                for (uint8_t j = 0; j < partialWindowSize; j++) {
-                    sum_sq += (temp_mv_g[j] - mean_mv_arr[i / windowSize]) * (temp_mv_g[j] - mean_mv_arr[i / windowSize]);
-                }
-                std_mv_arr[i / windowSize] = sqrtf(sum_sq / (partialWindowSize-1));
-                xprintf("mean for window %d : x %.2f, y %.2f, z %.2f\nMagnitude info: mean %.2f, std %f", (i / windowSize)+1, mean_ax_arr[i/windowSize], mean_ay_arr[i/windowSize], mean_az_arr[i/windowSize], mean_mv_arr[i/windowSize], std_mv_arr[i/windowSize]);
             }
-        }
-            // save the data to the data struct/object and return this object
-            data->mean_ax_arr = mean_ax_arr;
-            data->mean_ay_arr = mean_ay_arr;
-            data->mean_az_arr = mean_az_arr;
-            data->mean_mv_arr = mean_mv_arr;
-            data->std_mv_arr = std_mv_arr;
-            data->windowSize = num_total_windows;
+
+
+            bool is_last_sample_of_all = (i + 1 == numSamples);
+
+            // Check if this sample completes a window (either full or the very last partial one)
+            if (windowSize > 0 && ((i + 1) % windowSize == 0 || is_last_sample_of_all)) {
+                uint8_t current_window_idx = i / windowSize;
+                if (current_window_idx >= num_total_windows) continue; // Should not happen if logic is correct
+
+                uint8_t samples_in_current_window_being_finalized;
+                bool is_this_a_partial_window_at_end = false;
+
+                if (((i + 1) % windowSize == 0)) { // Full window completed
+                    samples_in_current_window_being_finalized = windowSize;
+                } else { // This must be the last sample of all, and it's a partial window
+                    samples_in_current_window_being_finalized = (i % windowSize) + 1;
+                    is_this_a_partial_window_at_end = true;
+                }
+
+                bool process_this_window = true;
+                if (is_this_a_partial_window_at_end) {
+                    if (samples_in_current_window_being_finalized < (uint8_t)(windowSize * 0.25f)) {
+                        process_this_window = false;
+                        xprintf("Partial window %d (size %d) discarded as < 25%% of windowSize %d.\n",
+                                current_window_idx + 1, samples_in_current_window_being_finalized, windowSize);
+                        
+                        // If this discarded window was the last one num_total_windows was accounting for, decrement it.
+                        if (current_window_idx == num_total_windows - 1 && num_total_windows > 0) {
+                           num_total_windows--; 
+                        }
+                        // Zero out the sums for this discarded window as they won't be averaged.
+                        mean_ax_arr[current_window_idx] = 0.0f;
+                        mean_ay_arr[current_window_idx] = 0.0f;
+                        mean_az_arr[current_window_idx] = 0.0f;
+                        mean_mv_arr[current_window_idx] = 0.0f;
+                        // std_mv_arr is already 0 from calloc
+                    }
+                }
+
+                if (process_this_window && samples_in_current_window_being_finalized > 0) {
+                    // Finalize calculations for this window
+                    mean_ax_arr[current_window_idx] /= samples_in_current_window_being_finalized;
+                    mean_ay_arr[current_window_idx] /= samples_in_current_window_being_finalized;
+                    mean_az_arr[current_window_idx] /= samples_in_current_window_being_finalized;
+                    mean_mv_arr[current_window_idx] /= samples_in_current_window_being_finalized;
+
+                    float sum_sq = 0.0f;
+                    // temp_mv_g was filled for the current window's samples
+                    for (uint8_t j = 0; j < samples_in_current_window_being_finalized; j++) {
+                        sum_sq += (temp_mv_g[j] - mean_mv_arr[current_window_idx]) * (temp_mv_g[j] - mean_mv_arr[current_window_idx]);
+                    }
+
+                    if (samples_in_current_window_being_finalized > 1) {
+                        std_mv_arr[current_window_idx] = sqrtf(sum_sq / (samples_in_current_window_being_finalized - 1));
+                    } else {
+                        std_mv_arr[current_window_idx] = 0.0f; // Std dev of 1 sample is 0
+                    }
+                    xprintf("mean for %s window %d (size %d): x %.2f, y %.2f, z %.2f\nMagnitude info: mean %.2f, std %.3f\n",
+                            (samples_in_current_window_being_finalized == windowSize ? "full" : "partial"),
+                            current_window_idx + 1, samples_in_current_window_being_finalized,
+                            mean_ax_arr[current_window_idx], mean_ay_arr[current_window_idx], mean_az_arr[current_window_idx],
+                            mean_mv_arr[current_window_idx], std_mv_arr[current_window_idx]);
+                }
+            }
+        } // End of for loop over numSamples
+
+        // save the data to the data struct/object and return this object
+        data->mean_ax_arr = mean_ax_arr;
+        data->mean_ay_arr = mean_ay_arr;
+        data->mean_az_arr = mean_az_arr;
+        data->mean_mv_arr = mean_mv_arr;
+        data->std_mv_arr = std_mv_arr;
+        data->windowSize = num_total_windows; // This now reflects the count of valid, processed windows
         
-        if (numSamples == 0) {
-            xprintln("No accelerometer samples to compute statistics.");
+        if (numSamples > 0 && num_total_windows == 0 && windowSize > 0) { // All samples might have been in one tiny partial window that got discarded
+             xprintln("All samples were in a partial window too small to process.");
+        } else if (numSamples == 0 && bytesToRead > 0 && bytesToRead % 6 != 0) {
+             // This case is if fifoCount was < 6 bytes initially
+             xprint("Warning: Partial accelerometer sample data in FIFO (");
+             xprint(bytesToRead % 6); xprintln(" bytes). Not enough for a full sample.");
+        } else if (numSamples == 0 && bytesToRead == 0){
+            // Already handled by "FIFO is empty"
+        } else if (numSamples == 0){
+             xprintln("No complete accelerometer samples to compute statistics.");
         }
 
-        if (bytesToRead % 6 != 0 && bytesToRead > 0) { // Check for partial packet if not empty
+
+        if (bytesToRead > 0 && bytesToRead % 6 != 0 && numSamples > 0) { // Check for partial packet if not empty and some samples were processed
             xprint("Warning: Partial accelerometer sample data at end of FIFO (");
             xprint(bytesToRead % 6); xprintln(" bytes remaining).");
         }

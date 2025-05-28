@@ -37,6 +37,9 @@ MAX30102::MAX30102() {
     dataframetofill = nullptr; // Initialize members
     validSamplesCount = 0;
     ppgDataNotificationSemaphore = NULL; // Will be created in setup
+    readingscount = 255; // Initialize reading count
+    last_heart_rate = 0.0f; // Initialize last heart rate
+    last_oxygen_saturation = 0.0f; // Initialize last oxygen saturation
 }
 
 // ISR Wrapper - Definition
@@ -58,37 +61,40 @@ void MAX30102::setup() {
     xprintln("MAX30102: Main setup complete");
 }
 
-// runReading method - Definition
-void MAX30102::runReading(MAXData *dataframe) {
-    this->dataframetofill = dataframe;
+bool MAX30102::isSensorProcessing() {
+    // If the semaphore is not NULL, assume processing is ongoing
+    return ppgDataNotificationSemaphore != NULL;
+}
 
-    BaseType_t taskCreated = xTaskCreate(
-        taskWrapper,
-        "PPGSensorTask",
-        1024 * 9, // Stack size
-        this,       // Pass this instance as parameter
-        1,          // Priority
-        NULL        // Task handle
-    );
-    if (taskCreated != pdPASS) {
-        xprintln("Fatal Error: Failed to create PPG Sensor Task!");
-        // Handle error
-        return;
+// runReading method - Definition
+MAXData *MAX30102::runReading() {
+    MAXData *data = (MAXData *)malloc(sizeof(MAXData));
+    
+    if (data == nullptr) {
+        xprintln("Error: Failed to allocate memory for MAXData in runReading!");
+        static MAXData errorData = { -1.0f, -1.0f }; // Or some other error indicator values
+        return &errorData;
+    }
+
+    if(readingscount >= PPG_READ_EVERY){
+        ppgSensorTask(data);
+    } else {
+        ++readingscount;
+        data->heart_rate = last_heart_rate;
+        data->oxygen = last_oxygen_saturation;
+        return data;
     }
 }
 
-// taskWrapper method - Definition
-void MAX30102::taskWrapper(void* pvParameters) {
-    MAX30102* self = static_cast<MAX30102*>(pvParameters);
-    self->ppgSensorTask();
-}
-
 // ppgSensorTask method - Definition
-void MAX30102::ppgSensorTask() {
+void MAX30102::ppgSensorTask(MAXData * dataframe) {
     xprintln("Task: PPG Sensor Task Started.");
     if (!initializeForSpotCheck()) {
-        xprintln("Task: MAX30102 setup failed. Deleting task.");
-        vTaskDelete(NULL);
+        xprintln("Task: MAX30102 setup failed.");
+        if (dataframe != nullptr) { // Check if dataframetofill is valid
+            dataframe->heart_rate = last_heart_rate;
+            dataframe->oxygen = last_oxygen_saturation;
+        }
         return;
     }
     // Ensure TOTAL_OPERATION_DURATION_MS and DISCARD_DURATION_MS are defined
@@ -110,12 +116,15 @@ void MAX30102::ppgSensorTask() {
         float heart_rate_bpm = calculateHeartRate(ppgDataBuffer, validSamplesCount);
         float oxygen_saturation_percent = calculateSpO2(ppgDataBuffer, validSamplesCount);
         
-        if (dataframetofill != nullptr) { // Check if dataframetofill is valid
-            dataframetofill->heart_rate = heart_rate_bpm;
-            dataframetofill->oxygen = oxygen_saturation_percent;
+        if (dataframe != nullptr) { // Check if dataframetofill is valid
+            dataframe->heart_rate = heart_rate_bpm;
+            dataframe->oxygen = oxygen_saturation_percent;
         } else {
-            xprintln("Task: dataframetofill is null, cannot store results.");
+            xprintln("Task: dataframetofill is null, only store to last_HR and last_oxy reading variable.");
         }
+
+        last_heart_rate = heart_rate_bpm;
+        last_oxygen_saturation = oxygen_saturation_percent;
 
         xprintf("\nEstimated Heart Rate: %.1f BPM\n", heart_rate_bpm);
         xprintf("Estimated SpO2: %.1f %%\n", oxygen_saturation_percent);
@@ -123,8 +132,6 @@ void MAX30102::ppgSensorTask() {
         xprintln("Task: No valid PPG samples were collected.");
     }
     xprintln("\nTask: PPG Sensor Task finished its cycle.");
-    
-    vTaskDelete(NULL);
 }
 
 // interruptServiceRoutine method - Definition

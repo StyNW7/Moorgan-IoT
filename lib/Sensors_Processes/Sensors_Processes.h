@@ -12,7 +12,9 @@ class Sensors_Processes{
         Adafruit_MPU6050 *mpu;
         MAX30102 *max;
         DataStream *datastream;
-        unsigned long long uploadinterval;
+        unsigned long long sleepinterval;
+        unsigned long long lasttime;
+        OneWire * _oneWireInstanceForDS18B20; // OneWire instance for DS18B20
         uint8_t readingitter;
         uint16_t readingcount;
         
@@ -25,10 +27,10 @@ class Sensors_Processes{
         ~Sensors_Processes();
         static Sensors_Processes* getInstance();
         
-        unsigned long long getUploadInterval();
+        unsigned long long getsleepinterval();
         void sendTelemetryRequest();
         char *parsingDatastreamToJson();
-        void setUploadInterval(unsigned long long interv);
+        void setsleepinterval(unsigned long long interv);
         float readTempData();
         void setup();
         bool getTempAvail();

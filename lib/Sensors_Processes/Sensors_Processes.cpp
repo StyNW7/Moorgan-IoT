@@ -12,9 +12,13 @@
 #include "DS18B20.h"
 #include <AzureIoTHub.h>
 #include <IOTHubInstance.h>
+#include <ESP32C3Monitor.h>
 
 // function declarations
 Sensors_Processes* Sensors_Processes::instance = nullptr;
+#ifdef DEVMODE
+ESP32C3_Monitor monitor;
+#endif
 // SENSORSSSSSSSSSSSS
 // all the sensors method and attributes
 
@@ -24,17 +28,19 @@ Sensors_Processes::Sensors_Processes() {
     mpu = nullptr;
     max = nullptr;
     datastream = nullptr;
-    uploadinterval= 60ULL;
+    _oneWireInstanceForDS18B20 = nullptr; 
+    sleepinterval= 60000;
     readingitter = DEFAULTUPLOADINTERVAL; // 60 times reading itteration for an hour
     readingcount = 0;
+    lasttime = 0;
 }
 
-unsigned long long Sensors_Processes::getUploadInterval(){
-    return uploadinterval;
+unsigned long long Sensors_Processes::getsleepinterval(){
+    return sleepinterval;
 }
 
-void Sensors_Processes::setUploadInterval(unsigned long long interv){
-    uploadinterval = interv;
+void Sensors_Processes::setsleepinterval(unsigned long long interv){
+    sleepinterval = interv;
 }
 
 Sensors_Processes* Sensors_Processes::getInstance() {
@@ -50,6 +56,11 @@ Sensors_Processes::~Sensors_Processes(){
     if(dsb){
         delete dsb;
         dsb = nullptr;
+    }
+
+    if(_oneWireInstanceForDS18B20){
+        delete _oneWireInstanceForDS18B20;
+        _oneWireInstanceForDS18B20 = nullptr;
     }
 
     if(mpu){
@@ -75,7 +86,10 @@ void Sensors_Processes::setup(){
     Wire.setClock(400000); // 400kHz I2C clock
 
     if(dsb == nullptr){
-        dsb = new DS18B20(new OneWire(DS18B20_PIN), DS18B20_RESOLUTION);
+        if (_oneWireInstanceForDS18B20 == nullptr) { // Check if already created
+            _oneWireInstanceForDS18B20 = new OneWire(DS18B20_PIN);
+        }
+        dsb = new DS18B20(_oneWireInstanceForDS18B20, DS18B20_RESOLUTION);
     }
 
     if(mpu == nullptr){
@@ -90,7 +104,8 @@ void Sensors_Processes::setup(){
     dsb->begin();
     mpuSetup(mpu);
     max->setup();
-    setupBatteryMon();
+    setupBatteryMon(); 
+    max->runReading(); // make sure there's already data in the buffer
 }
 
 // all the temperature sensor methods
@@ -122,8 +137,23 @@ float Sensors_Processes::readTempData(){
 
 // Holy Grail function of the entire project where all the logic is implemented
 void Sensors_Processes::pullData(){
-    // if(connected to wifi and mqtt connection established)
 
+    // compute how much time to sleep after reading the sensors
+    if(lasttime == 0){
+        lasttime = millis();
+    } else {
+        unsigned long long elapsed = millis() - lasttime;
+        if(elapsed < sleepinterval){
+            unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
+            xflush(); // Ensure all serial data is sent before sleeping
+            esp_sleep_enable_timer_wakeup(sleepTime_us); // set to microseconds
+            esp_light_sleep_start();
+        }
+        lasttime = millis();
+    }
+
+
+    // Create a new MainData object to hold the sensor data
     MainData *data = new MainData();
     
     if(getTempAvail()){
@@ -137,13 +167,23 @@ void Sensors_Processes::pullData(){
     } else {
         xprintln("Movement sensor not available.");
     }
-
+    
+    #ifdef DEVMODE
+    xprintln("Memory left after reading Movement.");
+    monitor.printStatus();
+    #endif
+    
     if(max->isConnected()){
-        max->runReading(&(data->max_data));
+        data->max_data = max->runReading();
     } else {
         xprintln("MAX30102 sensor not available.");
     }
-
+    
+    #ifdef DEVMODE
+    xprintln("Memory left after reading hr and spo.");
+    monitor.printStatus();
+    #endif
+    
     data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT)));
 
     // add battery info to the main data frame
@@ -159,17 +199,13 @@ void Sensors_Processes::pullData(){
 
     ++readingcount;
     
-    if(WiFi.status() == WL_CONNECTED ){
+    if(WiFi.status() == WL_CONNECTED){
         // check if mqtt connection is established or not
         if (IOTHubInstance::getInstance()->isAzureIoTConnected()) {
             // check if enough iterations have been done before sending telemetry data
             if(readingcount >= readingitter){
                 // parse into json format
                 sendTelemetryRequest();
-                // save the json format
-                // send telemetry data to mqtt service Azure IOT
-                // check if package sent successfuly
-                // then if finished, clear the data stream
             }
 
             // mqtt keep alive job
@@ -178,11 +214,13 @@ void Sensors_Processes::pullData(){
             IOTHubInstance::getInstance()->setupAzureIoTClient(); // Try to set up again
         }
     }
-    
-    
-    xflush(); // Ensure all serial data is sent before sleeping
-    esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP); //set to how many microsecond for one sleep
-    esp_light_sleep_start();
+
+    #ifdef DEVMODE
+    xprintln("Data pulled successfully.");
+    monitor.printStatus();
+    #endif
+
+    vTaskDelay(50 / portTICK_PERIOD_MS); // Small delay to allow other tasks to run
 }
 
 void Sensors_Processes::sendTelemetryRequest(){
@@ -190,7 +228,7 @@ void Sensors_Processes::sendTelemetryRequest(){
     char *jsonbuffer = parsingDatastreamToJson();
 
     if(IOTHubInstance::getInstance()->sendJsonToAzure(jsonbuffer)){
-        delete[] jsonbuffer; // Free the allocated memory for JSON buffer
+        free(jsonbuffer); // Free the allocated memory for JSON buffer
         datastream->clearData(); // Clear the data stream after sending
         xprintln("Telemetry data sent successfully.");
     }
@@ -230,8 +268,8 @@ char* Sensors_Processes::parsingDatastreamToJson() {
         // MAX30102 Data
         // v7: Use nodeObj[key].to<JsonObject>()
         JsonObject maxObj = nodeObj["max30102"].to<JsonObject>();
-        maxObj["heart_rate"] = serialized(String(current->max_data.heart_rate, 1));
-        maxObj["oxygen"] = serialized(String(current->max_data.oxygen, 1));
+        maxObj["heart_rate"] = serialized(String(current->max_data->heart_rate, 1));
+        maxObj["oxygen"] = serialized(String(current->max_data->oxygen, 1));
 
         // MPU6050 Data
         if (current->mpu_data != nullptr) {

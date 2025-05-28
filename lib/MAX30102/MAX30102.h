@@ -28,6 +28,9 @@ public:
     ppgSample ppgDataBuffer[PPG_BUFFER_SIZE];
     uint16_t validSamplesCount; // Initialize in constructor or rely on default (0 for numeric types if static/global)
     SemaphoreHandle_t ppgDataNotificationSemaphore; // Initialize in constructor
+    uint8_t readingscount; // Initialize in constructor
+    float last_heart_rate; // Initialize in constructor
+    float last_oxygen_saturation; // Initialize in constructor
 
     static MAX30102* instance;
 
@@ -38,9 +41,10 @@ public:
 
     // Methods
     void setup();
-    void runReading(MAXData *dataframe); // Ensure signature matches .cpp
-    void ppgSensorTask();
+    MAXData *runReading(); // Ensure signature matches .cpp
+    void ppgSensorTask(MAXData * dataframe);
     void interruptServiceRoutine();
+    bool isSensorProcessing();
 
     bool writeRegister(uint8_t reg_addr, uint8_t value);
     bool readRegister(uint8_t reg_addr, uint8_t *value);

@@ -36,12 +36,13 @@ void DataStream::clearData(){
     while (current != nullptr) {
         MainData *next = current->next;
         // clean up the MPUData and MAXData they are dynamically allocated
-        delete[] current->mpu_data->mean_ax_arr;
-        delete[] current->mpu_data->mean_ay_arr;
-        delete[] current->mpu_data->mean_az_arr;
-        delete[] current->mpu_data->mean_mv_arr;
-        delete[] current->mpu_data->std_mv_arr;
+        free(current->mpu_data->mean_ax_arr);
+        free(current->mpu_data->mean_ay_arr);
+        free(current->mpu_data->mean_az_arr);
+        free(current->mpu_data->mean_mv_arr);
+        free(current->mpu_data->std_mv_arr);
         delete current->mpu_data;
+        free(current->max_data); // Clean up MAXData
 
         delete current; // Free the memory of the current node
         current = next; // Move to the next node

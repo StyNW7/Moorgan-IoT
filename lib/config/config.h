@@ -3,7 +3,7 @@
 #define PROVISIONING_SERVICE_NAME "PROV_moorgan_colar" // service name have to start with PROV_
 
 // temperature sensor
-#define DS18B20_PIN 4
+#define DS18B20_PIN 10
 #define DS18B20_RESOLUTION 10
 
 // mpu gyro accel sensor
@@ -11,12 +11,17 @@
 #define WINDOWSIZE 6
 
 // max hr spo sensor configuration constants
-#define MAX30102_INT_PIN 4
+#define MAX30102_INT_PIN 3
 #define DISCARD_DURATION_MS 5000  // 5 seconds for sensor/signal to stabilize
 #define ACTIVE_READ_DURATION_MS 30000 // 30 seconds for actual data collection
 #define TOTAL_OPERATION_DURATION_MS (DISCARD_DURATION_MS + ACTIVE_READ_DURATION_MS) // 35 seconds
 #define SAMPLES_PER_SECOND 50
 #define PPG_BUFFER_SIZE (SAMPLES_PER_SECOND*(ACTIVE_READ_DURATION_MS/1000))
+#define PPG_READ_EVERY 1
+
+// WiFi and Provisioning settings
+#define TIMEOUTPROVISION (5 * 60 * 1000UL) // 5 minutes in milliseconds
+#define PROVISIONSLEEPT (60ULL * 1000000ULL) // 1 minute in microseconds
 
 // wifi connection measurements
 #define WIFIMEASUREDPOWER -30

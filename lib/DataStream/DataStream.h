@@ -6,7 +6,7 @@
 struct MainData {
     float temp_in_c;
     MPUData *mpu_data;
-    MAXData max_data;
+    MAXData *max_data;
     float distance_from_wifi_m;
     time_t timestamp;
     float battery_percentage;

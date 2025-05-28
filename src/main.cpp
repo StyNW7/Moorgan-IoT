@@ -37,5 +37,7 @@ void setup() {
 
 void dataPullingTask(void *pvParameter){
   Sensors_Processes *self = static_cast<Sensors_Processes*>(pvParameter);
-  self->pullData();
+  while(true){
+    self->pullData();
+  }
 }
