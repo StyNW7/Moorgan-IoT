@@ -96,20 +96,12 @@ bool IOTHubInstance::setupAzureIoTClient() {
         return false;
     }
 
-    if (strcmp(AZURE_IOT_ROOT_CA_CERTIFICATE, "PASTE_YOUR_AZURE_IOT_ROOT_CA_CERTIFICATE_PEM_STRING_HERE") == 0 || strlen(AZURE_IOT_ROOT_CA_CERTIFICATE) < 100) {
-        xprintln("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        xprintln("ERROR: AZURE_IOT_ROOT_CA_CERTIFICATE is not set or is a placeholder!");
-        xprintln("You MUST provide the Azure IoT Hub Root CA certificate string.");
-        xprintln("TLS connection will likely fail if this is not correctly set.");
-        xprintln("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-        // Not setting the CA, which will likely cause connection failure.
+
+    if (IoTHubClient_LL_SetOption(iotHubClientHandle, OPTION_TRUSTED_CERT, AZURE_IOT_ROOT_CA_CERTIFICATE) != IOTHUB_CLIENT_OK) {
+        xprintln("Failed to set trusted CA certificate option. This may lead to connection issues.");
+        // Not returning false here, to allow attempt to connect without it if user insists or for testing.
     } else {
-        if (IoTHubClient_LL_SetOption(iotHubClientHandle, OPTION_TRUSTED_CERT, AZURE_IOT_ROOT_CA_CERTIFICATE) != IOTHUB_CLIENT_OK) {
-            xprintln("Failed to set trusted CA certificate option. This may lead to connection issues.");
-            // Not returning false here, to allow attempt to connect without it if user insists or for testing.
-        } else {
-            xprintln("Trusted CA certificate option set.");
-        }
+        xprintln("Trusted CA certificate option set.");
     }
 
     int keepAliveIntervalSeconds = MQTT_KEEP_ALIVE_MINUTES * 60;
