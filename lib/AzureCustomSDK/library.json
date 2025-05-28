@@ -1,0 +1,32 @@
+{
+    "name": "AzureCustomSDK",
+    "version": "1.0.0",
+    "description": "Manually included Azure IoT C SDK components for DPS and Hub",
+    "build": {
+        "libArchive": false,
+        "srcFilter": [
+            "+<c_utility/src/*.c>",
+            "+<c_utility/pal/generic/*.c>",
+            "+<c_utility/pal/freertos/*.c>",
+            "+<c_utility/pal/*.c>",
+            "+<umqtt/src/*.c>",
+            "+<parson/parson.c>",
+            "+<provisioning_client/src/*.c>",
+            "+<provisioning_client/adapters/prov_transport_mqtt_client.c>"
+        ],
+        "flags": [
+            "-I c_utility/inc",
+            "-I c_utility/pal/inc",
+            "-I c_utility/pal/generic",
+            "-I c_utility/pal/freertos",
+            "-I umqtt/inc",
+            "-I parson",
+            "-I provisioning_client/inc",
+            "-I provisioning_client/adapters",
+            "-DSET_TRUSTED_CERT_IN_SAMPLES",
+            "-DHSM_TYPE_SYMM_KEY",
+            "-DUSE_PROV_CLIENT",
+            "-DUSE_MQTT"
+        ]
+    }
+}
