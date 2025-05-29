@@ -52,4 +52,9 @@ void checkFlashPSRAM(){
 void xflush(){
     Serial.flush();
 }
+#else
+// Add the definition for xflush when DEVMODE is not defined
+void xflush() {
+    // This version does nothing, as was the intent in the original header's #else block
+}
 #endif

@@ -9,9 +9,9 @@
 void dataPullingTask(void *pvParameter);
 
 void setup() {
-  #ifdef DEVMODE
+  // #ifdef DEVMODE
     Serial.begin(115200);
-  #endif
+  // #endif
 
   // let provision do it's thing and also setup for other connections (mqtt to Azure IoT Hub)
   Provision::getInstance()->setupProvision();

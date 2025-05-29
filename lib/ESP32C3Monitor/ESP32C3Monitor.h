@@ -22,9 +22,10 @@
 class ESP32C3_Monitor {
 public:
     /**
-     * @brief Constructor for ESP32C3_Monitor.
+     * @brief Gets the single instance of the ESP32C3_Monitor.
+     * @return Reference to the singleton instance.
      */
-    ESP32C3_Monitor();
+    static ESP32C3_Monitor& getInstance();
 
     /**
      * @brief Prints the current memory status (total, free, used heap) and CPU frequency
@@ -49,6 +50,18 @@ public:
      * @return CPU frequency in MHz.
      */
     uint32_t getCpuFrequencyMHz();
+
+    // Delete copy constructor and assignment operator
+    ESP32C3_Monitor(const ESP32C3_Monitor&) = delete;
+    ESP32C3_Monitor& operator=(const ESP32C3_Monitor&) = delete;
+
+private:
+    /**
+     * @brief Private constructor for ESP32C3_Monitor.
+     */
+    ESP32C3_Monitor();
+    
+    static ESP32C3_Monitor instance; // Static instance
 };
 
 #endif // ESP32C3_MONITOR_H

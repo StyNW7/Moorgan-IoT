@@ -16,16 +16,14 @@
 
 // function declarations
 Sensors_Processes* Sensors_Processes::instance = nullptr;
-#ifdef DEVMODE
-ESP32C3_Monitor monitor;
-#endif
+// DS18B20 temperature sensor pin and resolution
 // SENSORSSSSSSSSSSSS
 // all the sensors method and attributes
 
 // Add the constructor definition here
 Sensors_Processes::Sensors_Processes() {
     dsb = nullptr;
-    mpu = nullptr;
+    // mpu = nullptr;
     max = nullptr;
     datastream = nullptr;
     _oneWireInstanceForDS18B20 = nullptr; 
@@ -63,10 +61,10 @@ Sensors_Processes::~Sensors_Processes(){
         _oneWireInstanceForDS18B20 = nullptr;
     }
 
-    if(mpu){
-        delete mpu;
-        mpu = nullptr;
-    }
+    // if(mpu){
+    //     delete mpu;
+    //     mpu = nullptr;
+    // }
 
     if(max){
         delete max;
@@ -92,9 +90,9 @@ void Sensors_Processes::setup(){
         dsb = new DS18B20(_oneWireInstanceForDS18B20, DS18B20_RESOLUTION);
     }
 
-    if(mpu == nullptr){
-        mpu = new Adafruit_MPU6050();
-    }
+    // if(mpu == nullptr){
+    //     mpu = new Adafruit_MPU6050();
+    // }
 
     if(max == nullptr){
         max = new MAX30102();
@@ -104,7 +102,10 @@ void Sensors_Processes::setup(){
 
     #ifndef TESTINGMODE
     dsb->begin();
-    mpuSetup(mpu);
+    if (!mpuSetup()) { // Call your new mpuSetup, check return
+        xprintln("FATAL: MPU6050 setup failed!");
+        // Handle failure, maybe by looping indefinitely or setting an error flag
+    }
     max->setup();
     setupBatteryMon();
     #endif 
@@ -142,43 +143,52 @@ float Sensors_Processes::readTempData(){
 // Holy Grail function of the entire project where all the logic is implemented
 void Sensors_Processes::pullData(){
 
-    // compute how much time to sleep after reading the sensors
     if(lasttime == 0){
         lasttime = millis();
     } else {
         unsigned long long elapsed = millis() - lasttime;
         if(elapsed < sleepinterval){
             unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
-            xprintln("Sleeping for: " + String(sleepTime_us) + " microseconds.");
-            xflush(); // Ensure all serial data is sent before sleeping
-            esp_sleep_enable_timer_wakeup(sleepTime_us); // set to microseconds
+            xprintf("Sleeping for: %llu microseconds.\n", sleepTime_us); // Using xprintf
+            xflush(); 
+            esp_sleep_enable_timer_wakeup(sleepTime_us); 
             esp_light_sleep_start();
         }
         lasttime = millis();
     }
 
     #ifndef TESTINGMODE
-    // Create a new MainData object to hold the sensor data
     MainData *data = new MainData();
+    if (!data) {
+        xprintln("Error: Failed to allocate memory for MainData!");
+        return; // Early exit if memory allocation fails
+    }
+    // Initialize pointers in MainData to nullptr
+    data->mpu_data = nullptr;
+    data->max_data = nullptr;
     
     if(getTempAvail()){
         data->temp_in_c = readTempData();
     } else {
         xprintln("Temperature sensor not available.");
+        data->temp_in_c = NAN; // Indicate missing data
     }
 
-    if(getMovAvail(mpu)){
+    // if(getMovAvail(mpu)){ // REMOVE
+    if(getMovAvail()){ // ADD - Call your new getMovAvail
         data->mpu_data = readMPUData();
     } else {
-        xprintln("Movement sensor not available.");
+        xprintln("Movement sensor not available or no new movement data.");
+        // Optionally, allocate a simple MPUData with 0 windows if backend expects the object
+        // For now, leaving as nullptr if no data.
     }
     
     #ifdef DEVMODE
     xprintln("Memory left after reading Movement.");
-    monitor.printStatus();
+    ESP32C3_Monitor::getInstance().printStatus();
     #endif
     
-    if(max->isConnected()){
+    if(max->isConnected()){ // MAX30102 object still exists and is used
         data->max_data = max->runReading();
     } else {
         xprintln("MAX30102 sensor not available.");
@@ -186,54 +196,53 @@ void Sensors_Processes::pullData(){
     
     #ifdef DEVMODE
     xprintln("Memory left after reading hr and spo.");
-    monitor.printStatus();
+    ESP32C3_Monitor::getInstance().printStatus();
     #endif
     
     data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT)));
-
-    // add battery info to the main data frame
     data->battery_percentage = getBatteryCapacity();
 
-    // Add the data to the data stream
     if(datastream){
         datastream->addData(data);
     } else {
         xprintln("Data stream not initialized.");
-        delete data;
+        // Clean up allocated data if not added to stream
+        if (data) {
+            if(data->mpu_data) { // If MPUData was allocated by readMPUData but not added
+                free(data->mpu_data->mean_ax_arr); free(data->mpu_data->mean_ay_arr);
+                free(data->mpu_data->mean_az_arr); free(data->mpu_data->mean_mv_arr);
+                free(data->mpu_data->std_mv_arr);
+                delete data->mpu_data;
+            }
+            if(data->max_data) { // If MAXData was allocated but not added
+                 delete data->max_data; // Assuming MAXData is dynamically allocated by max->runReading()
+            }
+            delete data;
+        }
     }
 
-    #endif
+    #endif // TESTINGMODE
 
     ++readingcount;
     
     if(WiFi.status() == WL_CONNECTED){
-        // check if mqtt connection is established or not
-        xprintln("WiFi connected, checking Azure IoT connection...");
         if (IOTHubInstance::getInstance()->isAzureIoTConnected()) {
-            // check if enough iterations have been done before sending telemetry data
             if(readingcount >= readingitter){
-                // parse into json format
-                xprintln("Azure IoT connection established, preparing to send telemetry data...");
                 sendTelemetryRequest();
-            } else {
-                xprintf("Not enough readings yet, waiting for more data... itter = %d\n", readingitter);
+                readingcount = 0; // Reset counter after sending
             }
-
-            // mqtt keep alive job
-            xprintln("Performing Azure IoT Hub client work...");
-            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->iotHubClientHandle);
-        } 
-        // else {
-        //     IOTHubInstance::getInstance()->setupAzureIoTClient(); // Try to set up again
-        // }
+            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
+        } else {
+            IOTHubInstance::getInstance()->setupAzureIoTClient(); 
+        }
     }
 
     #ifdef DEVMODE
     xprintln("Data pulled successfully.");
-    monitor.printStatus();
+    ESP32C3_Monitor::getInstance().printStatus();
     #endif
 
-    vTaskDelay(50 / portTICK_PERIOD_MS); // Small delay to allow other tasks to run
+    vTaskDelay(50 / portTICK_PERIOD_MS); 
 }
 
 void Sensors_Processes::sendTelemetryRequest(){
@@ -253,7 +262,22 @@ void Sensors_Processes::sendTelemetryRequest(){
 
 char* Sensors_Processes::parsingDatastreamToJson(char *message) {
     if (datastream == nullptr || datastream->getSize() == 0) {
-        // ... (existing code for empty datastream) ...
+        // If the datastream is empty, return a minimal JSON with just the message
+        JsonDocument doc;
+        JsonObject root = doc.to<JsonObject>();
+        root["message"] = message ? message : "No message provided";
+        root["data"] = nullptr;
+
+        String outputJsonString;
+        serializeJson(doc, outputJsonString);
+
+        char* json_c_str = (char*)malloc(outputJsonString.length() + 1);
+        if (json_c_str == nullptr) {
+            xprintln("Failed to allocate memory for JSON C-string!");
+            return nullptr;
+        }
+        strcpy(json_c_str, outputJsonString.c_str());
+        return json_c_str;
     }
 
     // ArduinoJson v7: DynamicJsonDocument is now just JsonDocument.

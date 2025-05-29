@@ -1,20 +1,20 @@
 #pragma once
 
-#include <Adafruit_MPU6050.h>
+// #include <Adafruit_MPU6050.h> // REMOVE
 #include <DS18B20.h>
 #include <DataStream.h>
-#include <MPU6050.h>
+#include <MPU6050.h> // Your MPU6050 library
 #include <MAX30102.h>
 
 class Sensors_Processes{
     private:
         DS18B20 *dsb;
-        Adafruit_MPU6050 *mpu;
+        // Adafruit_MPU6050 *mpu; // REMOVE
         MAX30102 *max;
         DataStream *datastream;
         unsigned long long sleepinterval;
         unsigned long long lasttime;
-        OneWire * _oneWireInstanceForDS18B20; // OneWire instance for DS18B20
+        OneWire * _oneWireInstanceForDS18B20; 
         uint8_t readingitter;
         uint16_t readingcount;
         

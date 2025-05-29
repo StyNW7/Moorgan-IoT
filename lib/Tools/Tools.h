@@ -31,12 +31,12 @@ inline void xprintf(const char* format, ...) {
     Serial.print(buf);
 }
 
-void xflush();
+void xflush(); // Declaration
 #else
 template<typename T>
 void xprint(const T&) {}
 template<typename T>
 void xprintln(const T&) {}
 inline void xprintf(const char*, ...) {}
-void xflush() {}
+void xflush(); // Declaration
 #endif

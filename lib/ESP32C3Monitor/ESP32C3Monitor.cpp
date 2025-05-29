@@ -2,8 +2,19 @@
 #include "ESP32C3Monitor.h"
 #include <Tools.h>
 
+// Initialize static member
+ESP32C3_Monitor ESP32C3_Monitor::instance;
+
 /**
- * @brief Constructor for ESP32C3_Monitor.
+ * @brief Gets the single instance of the ESP32C3_Monitor.
+ * @return Reference to the singleton instance.
+ */
+ESP32C3_Monitor& ESP32C3_Monitor::getInstance() {
+    return instance;
+}
+
+/**
+ * @brief Private constructor for ESP32C3_Monitor.
  * Currently does not perform any specific initialization.
  */
 ESP32C3_Monitor::ESP32C3_Monitor() {
