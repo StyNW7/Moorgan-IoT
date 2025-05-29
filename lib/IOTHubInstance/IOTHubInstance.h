@@ -11,6 +11,7 @@ public:
     // Deleted copy constructor and assignment operator to prevent copies
     IOTHubInstance(const IOTHubInstance&) = delete;
     IOTHubInstance& operator=(const IOTHubInstance&) = delete;
+    IOTHUB_CLIENT_LL_HANDLE iotHubClientHandle;
 
     // Public interface methods (formerly global functions)
     void syncTimeNTP();
@@ -30,7 +31,6 @@ private:
     static IOTHubInstance* instance;
 
     // Member variables (formerly global static variables)
-    IOTHUB_CLIENT_LL_HANDLE iotHubClientHandle;
     bool iotHubConnected;
     unsigned long lastTelemetrySend;
 

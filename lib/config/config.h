@@ -1,10 +1,15 @@
 #pragma once
 #define DEVMODE
+#define TESTINGMODE
 #define PROVISIONING_SERVICE_NAME "PROV_moorgan_colar" // service name have to start with PROV_
+#define PRE_REGISTERED_DEVICE_UUID "70e3adae-7d64-409b-8e6c-213416f2ea72" // UUID of the device, can be found in Azure IoT Hub -> Devices -> Your Device -> Device ID
+// UUID can be changed, for now no azure auto provisioning is implemented
+// uploading interval
+#define DEFAULTUPLOADINTERVAL 2 // don't forget to set this back to 60
 
 // temperature sensor
 #define DS18B20_PIN 10
-#define DS18B20_RESOLUTION 10
+#define DS18B20_RESOLUTION 12
 
 // mpu gyro accel sensor
 // #define MPU_INTERRUPT_PIN 5
@@ -31,9 +36,6 @@
 #define NTPSERVER2 "time.nist.gov"
 #define GMTOFFSET_INDO (7*3600)
 
-// uploading interval
-#define DEFAULTUPLOADINTERVAL 2 // don't forget to set this back to 60
-
 // Battery percentage info line
 #define BATTERYADCPIN 4
 
@@ -41,8 +43,9 @@
 #define MICROSECOND_SLEEP (60ULL*1000000ULL) // 1 minute in microseconds
 
 // MQTT connection settings
-#define MQTT_KEEP_ALIVE_MINUTES 30 // MQTT Keep-Alive setting for the SDK
-#define IOTHUB_CONNECTION_STRING "YOUR_DEVICE_CONNECTION_STRING" // Get this from Azure portal: IoT Hub -> Devices -> Your Device -> Primary Connection String
+#define MQTT_KEEP_ALIVE_MINUTES 29 // MQTT Keep-Alive setting for the SDK
+// #define IOTHUB_CONNECTION_STRING "YOUR_DEVICE_CONNECTION_STRING" // Get this from Azure portal: IoT Hub -> Devices -> Your Device -> Primary Connection String
+// connection string is set in the secreets.h file
 #define GMT_OFFSET_SEC (7 * 3600) // WIB (Western Indonesian Time) is UTC+7
 #define DAYLIGHT_OFFSET_SEC 0 
         

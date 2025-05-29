@@ -29,7 +29,8 @@ class Sensors_Processes{
         
         unsigned long long getsleepinterval();
         void sendTelemetryRequest();
-        char *parsingDatastreamToJson();
+        char *parsingDatastreamToJson(char *message);
+        char *generateRandomJson(const char* message);
         void setsleepinterval(unsigned long long interv);
         float readTempData();
         void setup();

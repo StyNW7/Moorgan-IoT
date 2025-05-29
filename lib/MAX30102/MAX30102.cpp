@@ -78,6 +78,7 @@ MAXData *MAX30102::runReading() {
 
     if(readingscount >= PPG_READ_EVERY){
         ppgSensorTask(data);
+        return data;
     } else {
         ++readingscount;
         data->heart_rate = last_heart_rate;

@@ -101,10 +101,14 @@ void Sensors_Processes::setup(){
     }
 
     datastream = new DataStream();
+
+    #ifndef TESTINGMODE
     dsb->begin();
     mpuSetup(mpu);
     max->setup();
-    setupBatteryMon(); 
+    setupBatteryMon();
+    #endif 
+
     max->runReading(); // make sure there's already data in the buffer
 }
 
@@ -145,6 +149,7 @@ void Sensors_Processes::pullData(){
         unsigned long long elapsed = millis() - lasttime;
         if(elapsed < sleepinterval){
             unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
+            xprintln("Sleeping for: " + String(sleepTime_us) + " microseconds.");
             xflush(); // Ensure all serial data is sent before sleeping
             esp_sleep_enable_timer_wakeup(sleepTime_us); // set to microseconds
             esp_light_sleep_start();
@@ -152,7 +157,7 @@ void Sensors_Processes::pullData(){
         lasttime = millis();
     }
 
-
+    #ifndef TESTINGMODE
     // Create a new MainData object to hold the sensor data
     MainData *data = new MainData();
     
@@ -197,22 +202,30 @@ void Sensors_Processes::pullData(){
         delete data;
     }
 
+    #endif
+
     ++readingcount;
     
     if(WiFi.status() == WL_CONNECTED){
         // check if mqtt connection is established or not
+        xprintln("WiFi connected, checking Azure IoT connection...");
         if (IOTHubInstance::getInstance()->isAzureIoTConnected()) {
             // check if enough iterations have been done before sending telemetry data
             if(readingcount >= readingitter){
                 // parse into json format
+                xprintln("Azure IoT connection established, preparing to send telemetry data...");
                 sendTelemetryRequest();
+            } else {
+                xprintf("Not enough readings yet, waiting for more data... itter = %d\n", readingitter);
             }
 
             // mqtt keep alive job
-            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
-        } else {
-            IOTHubInstance::getInstance()->setupAzureIoTClient(); // Try to set up again
-        }
+            xprintln("Performing Azure IoT Hub client work...");
+            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->iotHubClientHandle);
+        } 
+        // else {
+        //     IOTHubInstance::getInstance()->setupAzureIoTClient(); // Try to set up again
+        // }
     }
 
     #ifdef DEVMODE
@@ -224,8 +237,11 @@ void Sensors_Processes::pullData(){
 }
 
 void Sensors_Processes::sendTelemetryRequest(){
-
-    char *jsonbuffer = parsingDatastreamToJson();
+    #ifndef TESTINGMODE
+    char *jsonbuffer = parsingDatastreamToJson("Data read successfully");
+    #else
+    char *jsonbuffer = generateRandomJson("Testing data transmission");
+    #endif
 
     if(IOTHubInstance::getInstance()->sendJsonToAzure(jsonbuffer)){
         free(jsonbuffer); // Free the allocated memory for JSON buffer
@@ -235,7 +251,7 @@ void Sensors_Processes::sendTelemetryRequest(){
 }
 
 
-char* Sensors_Processes::parsingDatastreamToJson() {
+char* Sensors_Processes::parsingDatastreamToJson(char *message) {
     if (datastream == nullptr || datastream->getSize() == 0) {
         // ... (existing code for empty datastream) ...
     }
@@ -260,6 +276,7 @@ char* Sensors_Processes::parsingDatastreamToJson() {
         char timeStr[30];
         strftime(timeStr, sizeof(timeStr), "%Y-%m-%dT%H:%M:%SZ", gmtime(&current->timestamp));
         nodeObj["timestamp"] = timeStr;
+        nodeObj["message"] = message ? message : "No message provided";
 
         nodeObj["temp_in_c"] = serialized(String(current->temp_in_c, 2));
         nodeObj["battery_percentage"] = serialized(String(current->battery_percentage, 1));
@@ -270,7 +287,7 @@ char* Sensors_Processes::parsingDatastreamToJson() {
         JsonObject maxObj = nodeObj["max30102"].to<JsonObject>();
         maxObj["heart_rate"] = serialized(String(current->max_data->heart_rate, 1));
         maxObj["oxygen"] = serialized(String(current->max_data->oxygen, 1));
-
+        
         // MPU6050 Data
         if (current->mpu_data != nullptr) {
             // v7: Use nodeObj[key].to<JsonObject>()
@@ -320,6 +337,39 @@ char* Sensors_Processes::parsingDatastreamToJson() {
     char* json_c_str = (char*)malloc(outputJsonString.length() + 1);
     if (json_c_str == nullptr) {
         xprintln("Failed to allocate memory for JSON C-string!");
+        return nullptr;
+    }
+    strcpy(json_c_str, outputJsonString.c_str());
+    return json_c_str;
+}
+
+char* Sensors_Processes::generateRandomJson(const char* message) {
+    // Create a JSON document
+    JsonDocument doc;
+    JsonObject root = doc.to<JsonObject>();
+
+    // Add the message
+    root["message"] = message ? message : "No message provided";
+
+    // Add 3 random float fields
+    root["random_field_1"] = serialized(String(random(0, 10000) / 100.0f, 2));
+    root["random_field_2"] = serialized(String(random(0, 10000) / 100.0f, 2));
+    root["random_field_3"] = serialized(String(random(0, 10000) / 100.0f, 2));
+
+    // Add an array with 5 random floats
+    JsonArray arr = root["random_array"].to<JsonArray>();
+    for (int i = 0; i < 5; ++i) {
+        arr.add(serialized(String(random(0, 10000) / 100.0f, 2)));
+    }
+
+    // Serialize to string
+    String outputJsonString;
+    serializeJson(doc, outputJsonString);
+
+    // Allocate and copy to char*
+    char* json_c_str = (char*)malloc(outputJsonString.length() + 1);
+    if (json_c_str == nullptr) {
+        xprintln("Failed to allocate memory for random JSON C-string!");
         return nullptr;
     }
     strcpy(json_c_str, outputJsonString.c_str());

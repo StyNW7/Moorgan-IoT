@@ -11,7 +11,6 @@
 #include <Preferences.h>
 #include <freertos/task.h>
 
-void provision_wifi_check (void *in) ;
 void SysProvEvent(arduino_event_t *sys_event, Provision *provision);
 
 
@@ -117,6 +116,7 @@ void Provision::setPop(const char * pop) {
 
 
 void Provision::setupProvision() {
+    #ifndef PRE_REGISTERED_DEVICE_UUID
     Preferences pref;
     // uuid creation system (for unique id every device)
     pref.begin("uuid",true);
@@ -141,6 +141,10 @@ void Provision::setupProvision() {
     }
     // then pref.end()
     pref.end();
+    #else
+    xprintln("Using pre-registered UUID:");
+    xprint(this->uuid->fromString(PRE_REGISTERED_DEVICE_UUID));
+    #endif
     // this can be implemented in the tools, no need to do it here
     // DEVICE INITIALIZATION end
 
@@ -165,11 +169,6 @@ void Provision::setupProvision() {
             xprintln("WiFi connected !!!");
             this->connected = true;
             // setup time
-            IOTHubInstance::getInstance()->syncTimeNTP();
-            if (!IOTHubInstance::getInstance()->setupAzureIoTClient()) {
-                xprintln("Failed to initialize Azure IoT Hub client. Check configurations.");
-                // You might want to loop here or restart ESP
-            }
             esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
             
             xprintln("Time configured via NTP.");
