@@ -1,6 +1,7 @@
 #pragma once
 #define DEVMODE
 #define TESTINGMODE
+#define NO_PROVISIONING
 #define PROVISIONING_SERVICE_NAME "PROV_moorgan_colar" // service name have to start with PROV_
 #define PRE_REGISTERED_DEVICE_UUID "70e3adae-7d64-409b-8e6c-213416f2ea72" // UUID of the device, can be found in Azure IoT Hub -> Devices -> Your Device -> Device ID
 // UUID can be changed, for now no azure auto provisioning is implemented

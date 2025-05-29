@@ -3,7 +3,6 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <UUIDs.h>
-#include <Provision.h>
 #include <config.h> 
 #include <secreets.h> // For IOTHUB_CONNECTION_STRING, MQTT_KEEP_ALIVE_MINUTES, etc.
 #include <Tools.h>

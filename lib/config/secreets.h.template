@@ -1,1 +1,3 @@
 #define IOTHUB_CONNECTION_STRING ""
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
