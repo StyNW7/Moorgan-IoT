@@ -19,6 +19,7 @@ public:
     bool setupAzureIoTClient();
     bool sendJsonToAzure(const char* jsonPayload);
     bool isAzureIoTConnected();
+    const char* getAzureHostName();
 
     // Destructor for cleanup
     ~IOTHubInstance();

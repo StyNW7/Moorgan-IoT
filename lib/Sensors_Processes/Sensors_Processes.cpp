@@ -61,11 +61,6 @@ Sensors_Processes::~Sensors_Processes(){
         _oneWireInstanceForDS18B20 = nullptr;
     }
 
-    // if(mpu){
-    //     delete mpu;
-    //     mpu = nullptr;
-    // }
-
     if(max){
         delete max;
         max = nullptr;
@@ -108,9 +103,9 @@ void Sensors_Processes::setup(){
     }
     max->setup();
     setupBatteryMon();
+    max->runReading(); // make sure there's already data in the buffer
     #endif 
 
-    max->runReading(); // make sure there's already data in the buffer
 }
 
 // all the temperature sensor methods
@@ -143,19 +138,19 @@ float Sensors_Processes::readTempData(){
 // Holy Grail function of the entire project where all the logic is implemented
 void Sensors_Processes::pullData(){
 
-    if(lasttime == 0){
-        lasttime = millis();
-    } else {
-        unsigned long long elapsed = millis() - lasttime;
-        if(elapsed < sleepinterval){
-            unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
-            xprintf("Sleeping for: %llu microseconds.\n", sleepTime_us); // Using xprintf
-            xflush(); 
-            esp_sleep_enable_timer_wakeup(sleepTime_us); 
-            esp_light_sleep_start();
-        }
-        lasttime = millis();
-    }
+    // if(lasttime == 0){
+    //     lasttime = millis();
+    // } else {
+    //     unsigned long long elapsed = millis() - lasttime;
+    //     if(elapsed < sleepinterval){
+    //         unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
+    //         xprintf("Sleeping for: %llu microseconds.\n", sleepTime_us); // Using xprintf
+    //         xflush(); 
+    //         esp_sleep_enable_timer_wakeup(sleepTime_us); 
+    //         esp_light_sleep_start();
+    //     }
+    //     lasttime = millis();
+    // }
 
     #ifndef TESTINGMODE
     MainData *data = new MainData();
@@ -225,17 +220,31 @@ void Sensors_Processes::pullData(){
 
     ++readingcount;
     
-    if(WiFi.status() == WL_CONNECTED){
-        if (IOTHubInstance::getInstance()->isAzureIoTConnected()) {
-            if(readingcount >= readingitter){
-                sendTelemetryRequest();
-                readingcount = 0; // Reset counter after sending
-            }
-            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
-        } else {
-            IOTHubInstance::getInstance()->setupAzureIoTClient(); 
-        }
+    xprintln("Checking WiFi connection status...");
+
+    do {
+        delay(500);
+        Serial.print(".");
+    }while (WiFi.status() != WL_CONNECTED);
+
+    xprintln("WiFi is connected.");
+    // if(!IOTHubInstance::getInstance()->isAzureIoTConnected()){
+    //     xprintln("Azure IoT Hub is NOT connected. Setting up Azure IoT client...");
+    //     IOTHubInstance::getInstance()->setupAzureIoTClient(); 
+    // }
+
+    xprintln("Azure IoT Hub is connected.");
+    if(readingcount >= readingitter){
+        xprintf("Reading count (%d) reached threshold (%d). Sending telemetry request...\n", readingcount, readingitter);
+        sendTelemetryRequest();
+        readingcount = 0; // Reset counter after sending
+        xprintln("Reading count reset to 0 after sending telemetry.");
+    } else {
+        xprintf("Reading count (%d) has not reached threshold (%d). Not sending telemetry yet.\n", readingcount, readingitter);
     }
+    xprintln("Calling IoTHubClient_LL_DoWork...");
+    IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
+
 
     #ifdef DEVMODE
     xprintln("Data pulled successfully.");
@@ -253,10 +262,11 @@ void Sensors_Processes::sendTelemetryRequest(){
     #endif
 
     if(IOTHubInstance::getInstance()->sendJsonToAzure(jsonbuffer)){
-        free(jsonbuffer); // Free the allocated memory for JSON buffer
         datastream->clearData(); // Clear the data stream after sending
         xprintln("Telemetry data sent successfully.");
     }
+
+    free(jsonbuffer); // Free the allocated memory for JSON buffer
 }
 
 

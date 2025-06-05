@@ -11,6 +11,7 @@
 // temperature sensor
 #define DS18B20_PIN 10
 #define DS18B20_RESOLUTION 12
+#define CALIBRATE_DS18B20 1.5f // set to 1 to calibrate DS18B20 sensor, 0 to skip calibration
 
 // mpu gyro accel sensor
 // #define MPU_INTERRUPT_PIN 5

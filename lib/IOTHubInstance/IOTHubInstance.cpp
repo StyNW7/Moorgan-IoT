@@ -71,6 +71,35 @@ void IOTHubInstance::syncTimeNTP() {
     xprintln(asctime(&timeinfo));
 }
 
+const char* extractHostName(const char* connectionString) {
+    if (connectionString == nullptr) return nullptr;
+    const char* hostNameKey = "HostName=";
+    const char* hostNameStart = strstr(connectionString, hostNameKey);
+    if (hostNameStart == nullptr) return nullptr;
+
+    hostNameStart += strlen(hostNameKey);
+    const char* hostNameEnd = strchr(hostNameStart, ';');
+    if (hostNameEnd == nullptr) return nullptr; // Should not happen in a valid conn string
+
+    // This is a bit tricky as we need to return a string that persists.
+    // For simplicity in this context, we'll assume a static buffer.
+    // A more robust solution might involve dynamic allocation or passing a buffer.
+    static char extractedHost[128]; // Adjust size as needed
+    size_t len = hostNameEnd - hostNameStart;
+    if (len < sizeof(extractedHost)) {
+        strncpy(extractedHost, hostNameStart, len);
+        extractedHost[len] = '\0';
+        return extractedHost;
+    }
+    return nullptr; // Hostname too long for buffer
+}
+
+const char* IOTHubInstance::getAzureHostName() {
+    // Extract hostname from IOTHUB_CONNECTION_STRING
+    // This is a simplified way; a more robust parser might be needed if conn string format varies.
+    return extractHostName(IOTHUB_CONNECTION_STRING);
+}
+
 bool IOTHubInstance::setupAzureIoTClient() {
     xprintln("Setting up Azure IoT Hub client (Singleton)...");
 
@@ -127,8 +156,9 @@ bool IOTHubInstance::setupAzureIoTClient() {
 }
 
 bool IOTHubInstance::sendJsonToAzure(const char* jsonPayload) {
-    if (iotHubClientHandle == NULL || !iotHubConnected) {
-        xprintln("Azure IoT Hub client not initialized or not connected. Cannot send data.");
+    
+    if (iotHubClientHandle == NULL) {
+        xprintln("Azure IoT Hub client not initialized because iotHubClientHandle is null. Cannot send data.");
         return false;
     }
 
@@ -161,26 +191,61 @@ bool IOTHubInstance::isAzureIoTConnected() {
 
 void IOTHubInstance::connectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void* userContextCallback) {
     IOTHubInstance* self = static_cast<IOTHubInstance*>(userContextCallback);
-    if (self) {
-        self->iotHubConnected = (result == IOTHUB_CLIENT_CONNECTION_AUTHENTICATED);
+    if (self == nullptr) {
+        xprintln("ConnectionStatusCallback: userContextCallback is NULL!");
+        return;
     }
 
-    xprint("\nConnection Status: ");
+    self->iotHubConnected = (result == IOTHUB_CLIENT_CONNECTION_AUTHENTICATED);
+
     switch (reason) {
-        case IOTHUB_CLIENT_CONNECTION_EXPIRED_SAS_TOKEN:      xprintln("Expired SAS token"); break;
-        case IOTHUB_CLIENT_CONNECTION_DEVICE_DISABLED:        xprintln("Device disabled"); break;
-        case IOTHUB_CLIENT_CONNECTION_BAD_CREDENTIAL:         xprintln("Bad credential"); break;
-        case IOTHUB_CLIENT_CONNECTION_RETRY_EXPIRED:          xprintln("Retry expired"); break;
-        case IOTHUB_CLIENT_CONNECTION_NO_NETWORK:             xprintln("No network"); break;
-        case IOTHUB_CLIENT_CONNECTION_COMMUNICATION_ERROR:    xprintln("Communication error"); break;
-        case IOTHUB_CLIENT_CONNECTION_OK:                     xprintln("OK"); break;
-        case IOTHUB_CLIENT_CONNECTION_NO_PING_RESPONSE:       xprintln("No Ping Response"); break;
-        default:                                              xprintln("Unknown reason"); break;
+        case IOTHUB_CLIENT_CONNECTION_EXPIRED_SAS_TOKEN:
+            xprintln("Connection Status: SAS Token Expired");
+            break;
+        case IOTHUB_CLIENT_CONNECTION_DEVICE_DISABLED:
+            xprintln("Connection Status: Device Disabled");
+            break;
+        case IOTHUB_CLIENT_CONNECTION_BAD_CREDENTIAL:
+            xprintln("Connection Status: Bad Credential");
+            break;
+        case IOTHUB_CLIENT_CONNECTION_RETRY_EXPIRED:
+            xprintln("Connection Status: Retry Expired");
+            if (self->iotHubClientHandle != nullptr) {
+                // IoTHubClient_LL_Destroy(self->iotHubClientHandle); // Destroy might be too aggressive here,
+                                                                  // as DoWork might attempt retries.
+                                                                  // Let DoWork manage the handle lifecycle during retries.
+                                                                  // Only nullify if we are sure it's unrecoverable by DoWork.
+            }
+            // self->iotHubClientHandle = nullptr; // Consider if this is the right place
+            break;
+        case IOTHUB_CLIENT_CONNECTION_NO_NETWORK:
+            xprintln("Connection Status: No network");
+            // If no network, the handle is likely invalid for new operations.
+            // However, IoTHubClient_LL_DoWork is responsible for reconnection attempts.
+            // Aggressively destroying/nullifying here might interfere with SDK's internal retry logic.
+            // The SDK should eventually transition to RETRY_EXPIRED if it can't recover.
+            break;
+        case IOTHUB_CLIENT_CONNECTION_COMMUNICATION_ERROR:
+            xprintln("Connection Status: Communication Error");
+            break;
+        case IOTHUB_CLIENT_CONNECTION_OK:
+            xprintln("Connection Status: OK");
+            break;
+        case IOTHUB_CLIENT_CONNECTION_NO_PING_RESPONSE:
+            xprintln("Connection Status: No Ping Response");
+            break;
+        default:
+            xprint("Connection Status: Unknown reason code: ");
+            xprintln(reason);
+            break;
     }
-    if (self && self->iotHubConnected) {
-        xprintln("Successfully connected to Azure IoT Hub.");
-    } else {
+
+    if (!self->iotHubConnected) {
         xprintln("Disconnected from Azure IoT Hub.");
+        // If truly disconnected and unrecoverable by DoWork, then cleanup might be needed.
+        // For now, let setupAzureIoTClient handle re-creation if isAzureIoTConnected is false.
+    } else {
+        xprintln("Successfully connected to Azure IoT Hub.");
     }
 }
 
