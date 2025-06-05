@@ -32,9 +32,9 @@ class Sensors_Processes{
         char *parsingDatastreamToJson(char *message);
         char *generateRandomJson(const char* message);
         void setsleepinterval(unsigned long long interv);
-        void performDataCycle(int* rtc_count_ptr);
+        bool performDataCycle(int* rtc_count_ptr);
         float readTempData();
-        void setup();
+        void setup(bool isWakeUp); // << MODIFIED HERE
         bool getTempAvail();
-        void pullData();
+        // void pullData();
 };

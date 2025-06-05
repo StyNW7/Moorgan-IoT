@@ -16,19 +16,14 @@
 
 // function declarations
 Sensors_Processes* Sensors_Processes::instance = nullptr;
-// DS18B20 temperature sensor pin and resolution
-// SENSORSSSSSSSSSSSS
-// all the sensors method and attributes
 
-// Add the constructor definition here
 Sensors_Processes::Sensors_Processes() {
     dsb = nullptr;
-    // mpu = nullptr;
     max = nullptr;
     datastream = nullptr;
     _oneWireInstanceForDS18B20 = nullptr; 
     sleepinterval= 60000;
-    readingitter = DEFAULTUPLOADINTERVAL; // 60 times reading itteration for an hour
+    readingitter = DEFAULTUPLOADINTERVAL; 
     readingcount = 0;
     lasttime = 0;
 }
@@ -42,11 +37,9 @@ void Sensors_Processes::setsleepinterval(unsigned long long interv){
 }
 
 Sensors_Processes* Sensors_Processes::getInstance() {
-    // initialize sensor processes instance
     if (instance == nullptr) {
         instance = new Sensors_Processes();
     }
-
     return instance;
 }
 
@@ -55,17 +48,14 @@ Sensors_Processes::~Sensors_Processes(){
         delete dsb;
         dsb = nullptr;
     }
-
     if(_oneWireInstanceForDS18B20){
         delete _oneWireInstanceForDS18B20;
         _oneWireInstanceForDS18B20 = nullptr;
     }
-
     if(max){
         delete max;
         max = nullptr;
     }
-    
     if(datastream){
         datastream->clearData();
         delete datastream;
@@ -73,21 +63,18 @@ Sensors_Processes::~Sensors_Processes(){
     }
 }
 
-void Sensors_Processes::setup(){
+// MODIFIED setup method
+void Sensors_Processes::setup(bool isWakeUp){ // << MODIFIED HERE
 
-    Wire.begin(); // Initialize I2C (SDA, SCL default for ESP32-C3)
-    Wire.setClock(400000); // 400kHz I2C clock
+    Wire.begin(); 
+    Wire.setClock(400000); 
 
     if(dsb == nullptr){
-        if (_oneWireInstanceForDS18B20 == nullptr) { // Check if already created
+        if (_oneWireInstanceForDS18B20 == nullptr) { 
             _oneWireInstanceForDS18B20 = new OneWire(DS18B20_PIN);
         }
         dsb = new DS18B20(_oneWireInstanceForDS18B20, DS18B20_RESOLUTION);
     }
-
-    // if(mpu == nullptr){
-    //     mpu = new Adafruit_MPU6050();
-    // }
 
     if(max == nullptr){
         max = new MAX30102();
@@ -97,19 +84,17 @@ void Sensors_Processes::setup(){
 
     #ifndef TESTINGMODE
     dsb->begin();
-    if (!mpuSetup()) { // Call your new mpuSetup, check return
+    if (!mpuSetup(isWakeUp)) { // << PASS isWakeUp flag
         xprintln("FATAL: MPU6050 setup failed!");
-        // Handle failure, maybe by looping indefinitely or setting an error flag
     }
     max->setup();
     setupBatteryMon();
-    max->runReading(); // make sure there's already data in the buffer
+    max->runReading(); 
     #endif 
-
 }
 
-// all the temperature sensor methods
-// and attributes
+// ... (rest of Sensors_Processes.cpp remains the same) ...
+
 bool Sensors_Processes::getTempAvail(){
     if(dsb){
         return dsb->isConnected();
@@ -126,68 +111,83 @@ float Sensors_Processes::readTempData(){
         vTaskDelay(100 / portTICK_PERIOD_MS);
         waitedMs += 100;
         if (waitedMs >= 2000) {
-            // Handle timeout (return error value or throw)
-            return NAN; // or another error indicator
+            return NAN; 
         }
     }
-
     return dsb->getTempC();
 }
 
-void Sensors_Processes::performDataCycle(int* rtc_count_ptr) {
-    xprintln("Sensors_Processes: Performing data cycle...");
-    IOTHubInstance* iotHub = IOTHubInstance::getInstance(); // Get instance
+void Sensors_Processes::sendTelemetryRequest() {
+    #ifndef TESTINGMODE
+    char *jsonbuffer = parsingDatastreamToJson("Data read successfully");
+    #else
+    char *jsonbuffer = generateRandomJson("Testing data transmission");
+    #endif
 
-    // --- Collect Sensor Data ---
-    // (The WiFi and Azure client re-init logic is removed as main::setup handles it)
+    if (jsonbuffer == nullptr) {
+        xprintln("ERROR: Failed to generate JSON buffer for telemetry.");
+        return;
+    }
+
+    if (IOTHubInstance::getInstance()->sendJsonToAzure(jsonbuffer)) {
+        xprintln("Telemetry message enqueued by SDK. Waiting for confirmation via DoWork().");
+        if (datastream) { 
+             datastream->clearData(); 
+             xprintln("Datastream cleared (optimistic).");
+        }
+    } else {
+        xprintln("ERROR: Failed to enqueue telemetry data via IOTHubInstance.");
+    }
+
+    if (jsonbuffer != nullptr) {
+        free(jsonbuffer); 
+        jsonbuffer = nullptr;
+    }
+}
+
+bool Sensors_Processes::performDataCycle(int* rtc_count_ptr) {
+    xprintln("Sensors_Processes: Performing data cycle...");
+    bool telemetrySentAttempted = false; 
+
     #ifndef TESTINGMODE
     MainData *data = new MainData();
     if (!data) {
         xprintln("Error: Failed to allocate memory for MainData!");
-        return; // Early exit
+        return false; 
     }
-    data->mpu_data = nullptr; // Initialize pointers
+
+    data->mpu_data = nullptr; 
     data->max_data = nullptr;
 
-    if(getTempAvail()){
-        data->temp_in_c = readTempData();
+    if(getTempAvail()){ 
+        data->temp_in_c = readTempData(); 
     } else {
         xprintln("Temperature sensor not available.");
         data->temp_in_c = NAN; 
     }
 
-    if(getMovAvail()){
-        data->mpu_data = readMPUData();
+    // Check MPU availability before reading. getMovAvail() checks FIFO count.
+    // If mpuSetup on wake-up preserved FIFO, getMovAvail() should find data.
+    if(getMovAvail()){ 
+        xprintln("MPU6050 data available in FIFO, proceeding to read.");
+        data->mpu_data = readMPUData(); 
     } else {
-        xprintln("Movement sensor not available or no new movement data.");
-        // Ensure mpu_data is handled if it remains null (e.g., parsingDatastreamToJson checks for nullptr)
+        xprintln("Movement sensor not available or no new movement data in FIFO.");
     }
     
-    #ifdef DEVMODE
-    xprintln("Memory status after reading Movement:");
-    ESP32C3_Monitor::getInstance().printStatus();
-    #endif
-    
-    if(max->isConnected()){
-        data->max_data = max->runReading();
+    if(max && max->isConnected()){ 
+        data->max_data = max->runReading(); 
     } else {
-        xprintln("MAX30102 sensor not available.");
-        // Ensure max_data is handled if it remains null
+        xprintln("MAX30102 sensor not available or not connected.");
     }
-    
-    #ifdef DEVMODE
-    xprintln("Memory status after reading HR and SpO2:");
-    ESP32C3_Monitor::getInstance().printStatus();
-    #endif
     
     data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT)));
     data->battery_percentage = getBatteryCapacity();
 
     if(datastream){
-        datastream->addData(data);
+        datastream->addData(data); 
     } else {
         xprintln("Data stream not initialized. Cleaning up allocated sensor data.");
-        // Clean up allocated data if not added to stream
         if (data) {
             if(data->mpu_data) { 
                 if(data->mpu_data->mean_ax_arr) free(data->mpu_data->mean_ax_arr);
@@ -195,47 +195,41 @@ void Sensors_Processes::performDataCycle(int* rtc_count_ptr) {
                 if(data->mpu_data->mean_az_arr) free(data->mpu_data->mean_az_arr);
                 if(data->mpu_data->mean_mv_arr) free(data->mpu_data->mean_mv_arr);
                 if(data->mpu_data->std_mv_arr) free(data->mpu_data->std_mv_arr);
-                delete data->mpu_data; // Assuming MPUData itself is new'd
+                delete data->mpu_data; 
             }
             if(data->max_data) { 
-                 delete data->max_data; // Assuming MAXData itself is new'd by runReading if it allocates
+                 delete data->max_data; 
             }
-            delete data; // data is always new'd
+            delete data;
         }
     }
-    #else // TESTINGMODE is defined
+    #else 
     xprintln("TESTINGMODE: Skipping real sensor data collection.");
-    // Logic for testing mode if needed, e.g., add dummy data to datastream
     #endif
 
-    (*rtc_count_ptr)++; // Increment the RTC counter passed from main
-    xprintf("RTC Telemetry Reading Count: %d\n", *rtc_count_ptr);
+    (*rtc_count_ptr)++; 
+    xprintf("RTC Telemetry Reading Count: %d (Threshold: %d)\n", *rtc_count_ptr, readingitter);
     
-    // --- Process Telemetry ---
-    // readingitter is DEFAULTUPLOADINTERVAL from config.h
-    if (*rtc_count_ptr >= readingitter) {
-        xprintf("Reading count (%d) reached/exceeded threshold (%d). Sending telemetry.\n", *rtc_count_ptr, readingitter);
-        sendTelemetryRequest(); // This function now uses datastream
-        *rtc_count_ptr = 0; // Reset RTC counter
+    if (*rtc_count_ptr >= readingitter) { 
+        xprintf("Reading count reached/exceeded threshold. Sending telemetry.\n");
+        sendTelemetryRequest(); 
+        telemetrySentAttempted = true; 
+        *rtc_count_ptr = 0; 
         xprintln("RTC Telemetry Reading Count reset to 0.");
     } else {
-        xprintf("Reading count (%d) below threshold (%d). Telemetry not sent this cycle.\n", *rtc_count_ptr, readingitter);
+        xprintf("Reading count below threshold. Telemetry not sent this cycle.\n");
     }
-
-    // IoTHubClient_LL_DoWork() is now called in main.cpp's loop after this function.
 
     #ifdef DEVMODE
     xprintln("Sensors_Processes: Data cycle finished.");
-    ESP32C3_Monitor::getInstance().printStatus();
+    ESP32C3_Monitor::getInstance().printStatus(); 
     #endif
-
-    // No vTaskDelay or sleep logic here, main loop controls sleep.
+    return telemetrySentAttempted; 
 }
 
 
 char* Sensors_Processes::parsingDatastreamToJson(char *message) {
     if (datastream == nullptr || datastream->getSize() == 0) {
-        // If the datastream is empty, return a minimal JSON with just the message
         JsonDocument doc;
         JsonObject root = doc.to<JsonObject>();
         root["message"] = message ? message : "No message provided";
@@ -253,73 +247,51 @@ char* Sensors_Processes::parsingDatastreamToJson(char *message) {
         return json_c_str;
     }
 
-    // ArduinoJson v7: DynamicJsonDocument is now just JsonDocument.
-    // Capacity calculation is less critical as it can grow, but good for initial estimate.
-    const size_t capacityPerNode = 800;
-    size_t streamSize = datastream->getSize();
-    // For v7, you typically don't need to pre-calculate JSON_ARRAY_SIZE.
-    // Just provide a reasonable starting capacity.
-    JsonDocument doc; // Default constructor, will allocate as needed.
-                      // Or, if you want to give a hint: JsonDocument doc(streamSize * capacityPerNode);
-
+    JsonDocument doc; 
     JsonArray rootArray = doc.to<JsonArray>();
-
     MainData* current = datastream->getHead();
-    while (current != nullptr) {
-        // v7: Use add<JsonObject>() for arrays or obj[key].to<JsonObject>() for objects
-        JsonObject nodeObj = rootArray.add<JsonObject>();
 
-        // Timestamp (ISO 8601 format in UTC)
+    while (current != nullptr) {
+        JsonObject nodeObj = rootArray.add<JsonObject>();
         char timeStr[30];
         strftime(timeStr, sizeof(timeStr), "%Y-%m-%dT%H:%M:%SZ", gmtime(&current->timestamp));
         nodeObj["timestamp"] = timeStr;
         nodeObj["message"] = message ? message : "No message provided";
-
         nodeObj["temp_in_c"] = serialized(String(current->temp_in_c, 2));
         nodeObj["battery_percentage"] = serialized(String(current->battery_percentage, 1));
         nodeObj["wifi_distance_m"] = serialized(String(current->distance_from_wifi_m, 2));
 
-        // MAX30102 Data
-        // v7: Use nodeObj[key].to<JsonObject>()
         JsonObject maxObj = nodeObj["max30102"].to<JsonObject>();
         maxObj["heart_rate"] = serialized(String(current->max_data->heart_rate, 1));
         maxObj["oxygen"] = serialized(String(current->max_data->oxygen, 1));
         
-        // MPU6050 Data
         if (current->mpu_data != nullptr) {
-            // v7: Use nodeObj[key].to<JsonObject>()
             JsonObject mpuObj = nodeObj["mpu6050"].to<JsonObject>();
             const MPUData* mpu = current->mpu_data;
             mpuObj["window_size"] = mpu->windowSize;
 
-            auto serializeFloatArray = [&](JsonArray& arr, float* data, uint8_t size) {
-                if (data == nullptr) return;
+            auto serializeFloatArray = [&](JsonArray& arr, float* data_arr, uint8_t size) {
+                if (data_arr == nullptr) return;
                 for (uint8_t i = 0; i < size; ++i) {
-                    arr.add(serialized(String(data[i], 3)));
+                    arr.add(serialized(String(data_arr[i], 3)));
                 }
             };
 
             if (mpu->windowSize > 0) {
-                // v7: Use mpuObj[key].to<JsonArray>()
                 JsonArray axArr = mpuObj["mean_ax"].to<JsonArray>();
                 serializeFloatArray(axArr, mpu->mean_ax_arr, mpu->windowSize);
-
                 JsonArray ayArr = mpuObj["mean_ay"].to<JsonArray>();
                 serializeFloatArray(ayArr, mpu->mean_ay_arr, mpu->windowSize);
-
                 JsonArray azArr = mpuObj["mean_az"].to<JsonArray>();
                 serializeFloatArray(azArr, mpu->mean_az_arr, mpu->windowSize);
-
                 JsonArray mvArr = mpuObj["mean_mv"].to<JsonArray>();
                 serializeFloatArray(mvArr, mpu->mean_mv_arr, mpu->windowSize);
-
                 JsonArray stdArr = mpuObj["std_mv"].to<JsonArray>();
                 serializeFloatArray(stdArr, mpu->std_mv_arr, mpu->windowSize);
             }
         } else {
             nodeObj["mpu6050"] = nullptr;
         }
-
         current = current->next;
     }
 
@@ -327,10 +299,9 @@ char* Sensors_Processes::parsingDatastreamToJson(char *message) {
     serializeJson(doc, outputJsonString);
 
     if (doc.overflowed()) {
-        // ... (existing overflow handling) ...
+         xprintln("JSON document overflowed during serialization!");
     }
 
-    // ... (existing code to allocate and return char*) ...
     char* json_c_str = (char*)malloc(outputJsonString.length() + 1);
     if (json_c_str == nullptr) {
         xprintln("Failed to allocate memory for JSON C-string!");
@@ -341,29 +312,20 @@ char* Sensors_Processes::parsingDatastreamToJson(char *message) {
 }
 
 char* Sensors_Processes::generateRandomJson(const char* message) {
-    // Create a JSON document
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
-
-    // Add the message
     root["message"] = message ? message : "No message provided";
-
-    // Add 3 random float fields
     root["random_field_1"] = serialized(String(random(0, 10000) / 100.0f, 2));
     root["random_field_2"] = serialized(String(random(0, 10000) / 100.0f, 2));
     root["random_field_3"] = serialized(String(random(0, 10000) / 100.0f, 2));
-
-    // Add an array with 5 random floats
     JsonArray arr = root["random_array"].to<JsonArray>();
     for (int i = 0; i < 5; ++i) {
         arr.add(serialized(String(random(0, 10000) / 100.0f, 2)));
     }
 
-    // Serialize to string
     String outputJsonString;
     serializeJson(doc, outputJsonString);
 
-    // Allocate and copy to char*
     char* json_c_str = (char*)malloc(outputJsonString.length() + 1);
     if (json_c_str == nullptr) {
         xprintln("Failed to allocate memory for random JSON C-string!");

@@ -9,46 +9,45 @@
 
 // Conditional includes based on NO_PROVISIONING
 #ifndef NO_PROVISIONING
-#include <Provision.h> // This will not be compiled if NO_PROVISIONING is defined in config.h by preprocessor
+#include <Provision.h> 
 #else
-#include <esp_wifi.h> // For esp_wifi_set_ps
-#include <secreets.h> // For WIFI_SSID, WIFI_PASSWORD
+#include <esp_wifi.h> 
+#include <secreets.h> 
 #endif
 
 // RTC Variable Definitions
-RTC_DATA_ATTR bool rtc_is_first_boot = true; // Can be used for other one-time initializations if needed
+RTC_DATA_ATTR bool rtc_is_first_boot = true; 
 RTC_DATA_ATTR int rtc_telemetry_reading_count = 0;
-// RTC_DATA_ATTR bool rtc_is_provisioned = false; // This flag is not strictly needed when NO_PROVISIONING is defined
 
-// Define a shorter sleep interval for failures, if desired
-#define MICROSECOND_SLEEP_SHORT_FAILURE (30ULL * 1000000ULL) // 30 seconds, example
+#define MICROSECOND_SLEEP_SHORT_FAILURE (30ULL * 1000000ULL) 
 
 void setup() {
     Serial.begin(115200);
     xprintln("\n\n===================================");
     xprintln("Moorgan-IoT: Booting up / Woke from Deep Sleep...");
+    
+    bool is_wake_up = false;
     if (rtc_is_first_boot) {
         xprintln("Device is performing its first boot sequence after power-on or flash.");
-        // Perform any other true one-time initializations here
-        rtc_is_first_boot = false;
+        rtc_is_first_boot = false; // Clear the flag for subsequent boots (which will be wake-ups)
+        is_wake_up = false;
+    } else {
+        xprintln("Device woke up from deep sleep.");
+        is_wake_up = true;
     }
     xprint("Device UUID (from config): "); xprintln(PRE_REGISTERED_DEVICE_UUID);
     xprintln("===================================");
 
 #ifndef NO_PROVISIONING
-    // This block is skipped because NO_PROVISIONING is defined in your config.h
     xprintln("Provisioning enabled path (should be skipped).");
-    Provision::getInstance()->setupProvision(); 
-    // ... (other provisioning logic)
 #else 
-    // This block is EXECUTED because NO_PROVISIONING is defined
     xprintln("NO_PROVISIONING defined: Attempting WiFi connection with predefined credentials from secreets.h...");
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 #endif
 
     xprint("Attempting to connect to WiFi");
     int wifi_connect_retries = 0;
-    while (WiFi.status() != WL_CONNECTED && wifi_connect_retries < 20) { // Retry for ~10 seconds
+    while (WiFi.status() != WL_CONNECTED && wifi_connect_retries < 20) { 
         delay(500);
         xprint(".");
         wifi_connect_retries++;
@@ -63,13 +62,41 @@ void setup() {
         esp_wifi_set_ps(WIFI_PS_NONE);
         xprintln("WiFi power save mode disabled (WIFI_PS_NONE).");
 
-        IOTHubInstance::getInstance()->syncTimeNTP();
-        if (!IOTHubInstance::getInstance()->setupAzureIoTClient()) {
-            xprintln("FATAL: Failed to setup Azure IoT Client. Going to deep sleep.");
+        IOTHubInstance* iotHub = IOTHubInstance::getInstance(); 
+        iotHub->syncTimeNTP();
+
+        if (!iotHub->setupAzureIoTClient()) {
+            xprintln("FATAL: Failed to initiate Azure IoT Client setup. Going to deep sleep.");
             esp_sleep_enable_timer_wakeup(MICROSECOND_SLEEP_SHORT_FAILURE);
             esp_deep_sleep_start();
         } else {
-            xprintln("Azure IoT Client setup successfully.");
+            xprintln("Azure IoT Client setup successfully initiated.");
+            xprintln("Attempting to establish Azure IoT Hub connection (will try for up to 15 seconds)...");
+            
+            unsigned long azureConnectStartTime = millis();
+            bool connectedToAzureInSetup = false;
+
+            while (millis() - azureConnectStartTime < 15000) { 
+                if (iotHub->getIotHubClientHandle() != nullptr) {
+                    IoTHubClient_LL_DoWork(iotHub->getIotHubClientHandle());
+                } else {
+                    xprintln("Error: IoT Hub client handle became null during connection attempt.");
+                    break; 
+                }
+
+                if (iotHub->isAzureIoTConnected()) {
+                    xprintln("Successfully connected to Azure IoT Hub in setup!");
+                    connectedToAzureInSetup = true;
+                    break;
+                }
+                delay(500); 
+                xprint(">"); 
+            }
+            xprintln(""); 
+
+            if (!connectedToAzureInSetup) {
+                xprintln("Warning: Failed to connect to Azure IoT Hub within the timeout in setup.");
+            }
         }
     } else {
         xprintln("FATAL: Failed to connect to WiFi. Going to deep sleep.");
@@ -77,7 +104,8 @@ void setup() {
         esp_deep_sleep_start();
     }
 
-    Sensors_Processes::getInstance()->setup();
+    // Pass 'is_wake_up' to the sensor setup
+    Sensors_Processes::getInstance()->setup(is_wake_up);
     xprintln("Sensors setup complete.");
     xprintln("-----------------------------------");
     xprintln("Setup phase complete. Proceeding to main logic cycle.");
@@ -86,19 +114,38 @@ void setup() {
 
 void loop() {
     xprintln("\n>>> Starting main logic cycle <<<");
+    IOTHubInstance* iotHub = IOTHubInstance::getInstance(); 
+    bool messageWasSentThisCycle = false; 
 
-    if (WiFi.status() == WL_CONNECTED && IOTHubInstance::getInstance()->isAzureIoTConnected()) {
-        Sensors_Processes::getInstance()->performDataCycle(&rtc_telemetry_reading_count);
+    if (WiFi.status() == WL_CONNECTED && iotHub->isAzureIoTConnected()) {
+        messageWasSentThisCycle = Sensors_Processes::getInstance()->performDataCycle(&rtc_telemetry_reading_count);
 
-        if (IOTHubInstance::getInstance()->getIotHubClientHandle() != nullptr) {
-            xprintln("Calling IoTHubClient_LL_DoWork()...");
-            IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
+        if (iotHub->getIotHubClientHandle() != nullptr) {
+            xprintln("Calling IoTHubClient_LL_DoWork() after data cycle...");
+            IoTHubClient_LL_DoWork(iotHub->getIotHubClientHandle()); 
+
+            if (messageWasSentThisCycle) {
+                xprintln("Telemetry send was attempted this cycle. Running DoWork for up to 5 seconds for confirmation...");
+                unsigned long postSendDoWorkStart = millis();
+                int doWorkLoops = 0;
+                while (millis() - postSendDoWorkStart < 5000) { 
+                    IoTHubClient_LL_DoWork(iotHub->getIotHubClientHandle());
+                    delay(200); 
+                    doWorkLoops++;
+                }
+                xprintf("Finished extended DoWork after sending (ran %d times).\n", doWorkLoops);
+                xprintln("Check logs for 'Telemetry send confirmation: OK'");
+            }
         } else {
             xprintln("Warning: Azure IoT Hub client handle is NULL in loop. Cannot call DoWork.");
         }
-        xprintln("Data cycle and DoWork completed.");
+        xprintln("Data cycle and DoWork processing completed.");
 
     } else {
+        xprint("Condition check in loop: WiFi Connected = ");
+        xprint((WiFi.status() == WL_CONNECTED) ? "true" : "false");
+        xprint(", Azure IoT Hub Connected = ");
+        xprintln(iotHub->isAzureIoTConnected() ? "true" : "false");
         xprintln("WiFi or Azure IoT Hub not connected at start of loop.");
         xprintln("Skipping data cycle. Will enter deep sleep and retry setup on wake.");
     }
@@ -107,16 +154,6 @@ void loop() {
     xprint(MICROSECOND_SLEEP / 1000000ULL);
     xprintln(" seconds.");
     
-    // Optional: Cleanly destroy the Azure client handle before sleeping.
-    // If "host not found" was an issue, uncommenting this might help,
-    // though deep sleep's full reset should generally handle this.
-    // IOTHubInstance* iotHub = IOTHubInstance::getInstance();
-    // if (iotHub && iotHub->getIotHubClientHandle()) {
-    //    iotHub->prepareForSleep();
-    //    xprintln("Azure IoT Hub client prepared for sleep (handle potentially destroyed).");
-    // }
-
-
     xprintln(">>> End of main logic cycle. Entering deep sleep. <<<");
     xflush(); 
 
