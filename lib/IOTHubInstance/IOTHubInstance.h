@@ -11,7 +11,6 @@ public:
     // Deleted copy constructor and assignment operator to prevent copies
     IOTHubInstance(const IOTHubInstance&) = delete;
     IOTHubInstance& operator=(const IOTHubInstance&) = delete;
-    IOTHUB_CLIENT_LL_HANDLE iotHubClientHandle;
 
     // Public interface methods (formerly global functions)
     void syncTimeNTP();
@@ -20,6 +19,7 @@ public:
     bool sendJsonToAzure(const char* jsonPayload);
     bool isAzureIoTConnected();
     const char* getAzureHostName();
+    void prepareForSleep(); // <-- Add this new method
 
     // Destructor for cleanup
     ~IOTHubInstance();
@@ -30,10 +30,12 @@ private:
 
     // Singleton instance
     static IOTHubInstance* instance;
+    IOTHUB_CLIENT_LL_HANDLE iotHubClientHandle;
 
     // Member variables (formerly global static variables)
     bool iotHubConnected;
     unsigned long lastTelemetrySend;
+    static bool platformInitialized;
 
     // Azure IoT Hub Root CA Certificate (can be defined in .cpp)
     // If you prefer to define it here, it would be:

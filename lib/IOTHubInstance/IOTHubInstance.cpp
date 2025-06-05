@@ -16,6 +16,7 @@
 // IMPORTANT: YOU MUST PROVIDE THIS CERTIFICATE STRING.
 // This could also be a static const member of the class, initialized here.
 extern const char* AZURE_IOT_ROOT_CA_CERTIFICATE; // PASTE YOUR CERTIFICATE HERE
+bool IOTHubInstance::platformInitialized = false;
 
 // Initialize static instance pointer
 IOTHubInstance* IOTHubInstance::instance = nullptr;
@@ -34,7 +35,15 @@ IOTHubInstance::IOTHubInstance() :
     iotHubConnected(false),
     lastTelemetrySend(0)
 {
-    // Constructor logic, if any, beyond member initialization
+    if (!platformInitialized) {
+        if (platform_init() == 0) {
+            platformInitialized = true;
+            xprintln("Platform initialized successfully by IOTHubInstance constructor.");
+        } else {
+            xprintln("FATAL: Failed to initialize platform in IOTHubInstance constructor.");
+            // You might want to set an error flag here to prevent further operations
+        }
+    }
 }
 
 // Destructor
@@ -43,11 +52,61 @@ IOTHubInstance::~IOTHubInstance() {
         IoTHubClient_LL_Destroy(iotHubClientHandle);
         iotHubClientHandle = nullptr;
     }
-    platform_deinit(); // Deinitialize the platform
-    xprintln("IOTHub instance destroyed and resources cleaned up.");
+    if (platformInitialized) {
+        platform_deinit(); // Deinitialize the platform
+        platformInitialized = false;
+        xprintln("IOTHubInstance destroyed and platform de-initialized.");
+    } else {
+        xprintln("IOTHubInstance destroyed (platform was not initialized by it or already de-initialized).");
+    }
 }
 
 // --- Member Method Implementations ---
+
+void IOTHubInstance::prepareForSleep() {
+    if (this->iotHubClientHandle != nullptr) {
+        xprintln("IOTHubInstance: Preparing for sleep.");
+
+        // Step 1: Disable further operations and unregister general callbacks
+        // to prevent them from interfering during the destruction process.
+        // Set a flag or change state if your app logic uses isAzureIoTConnected()
+        // to gate operations like sendJsonToAzure().
+        this->iotHubConnected = false; // Mark as disconnected to stop new operations
+
+        xprintln("IOTHubInstance: Setting ConnectionStatus and Message callbacks to NULL before DoWork/Destroy.");
+        // Attempt to unregister global callbacks. If these fail, log it but proceed,
+        // as the main goal is to destroy the client.
+        if (IoTHubClient_LL_SetConnectionStatusCallback(this->iotHubClientHandle, NULL, NULL) != IOTHUB_CLIENT_OK) {
+            xprintln("Warning: Failed to set ConnectionStatusCallback to NULL in prepareForSleep.");
+        }
+        if (IoTHubClient_LL_SetMessageCallback(this->iotHubClientHandle, NULL, NULL) != IOTHUB_CLIENT_OK) {
+            xprintln("Warning: Failed to set MessageCallback to NULL in prepareForSleep.");
+        }
+
+        // Step 2: Give the SDK a brief chance to process any immediate pending items.
+        // Call DoWork a few times. This is a best-effort to flush outgoing messages
+        // or process acknowledgments that might be very close to completion.
+        // Avoid extensive looping here if the client might already be unstable.
+        xprintln("IOTHubInstance: Performing minimal DoWork cycles before destroy.");
+        for (int i = 0; i < 2; ++i) { // Very few cycles
+            if (this->iotHubClientHandle != nullptr) { // Important to re-check
+                IoTHubClient_LL_DoWork(this->iotHubClientHandle);
+                delay(10); // Shortest practical delay
+            } else {
+                break; // Handle became null unexpectedly
+            }
+        }
+
+        // Step 3: Destroy the client and nullify the handle.
+        xprintln("IOTHubInstance: Destroying client handle for sleep.");
+        IoTHubClient_LL_Destroy(this->iotHubClientHandle);
+        this->iotHubClientHandle = nullptr; // CRITICAL: Nullify the handle immediately
+                                        // iotHubConnected is already set to false.
+    } else {
+        xprintln("IOTHubInstance: Preparing for sleep. Client handle was already null.");
+        this->iotHubConnected = false; // Ensure consistency
+    }
+}
 
 void IOTHubInstance::syncTimeNTP() {
     xprintln("Synchronizing time with NTP server...");
@@ -55,20 +114,24 @@ void IOTHubInstance::syncTimeNTP() {
 
     time_t now = time(nullptr);
     int retries = 0;
-    while (now < 8 * 3600 * 2) { // Check if time is reasonably set
-        delay(300);
+    // Check if time is reasonably set (e.g., after Jan 1, 2023)
+    // (1672531200 is Jan 1, 2023 00:00:00 UTC)
+    while (now < 1672531200UL && retries < 30) { // Increased retries
+        delay(1000); // Increased delay
         xprint(".");
         now = time(nullptr);
         retries++;
-        if (retries > 10) { // Increased retries
-            xprintln("\nFailed to synchronize time with NTP after multiple retries.");
-            return;
-        }
     }
-    struct tm timeinfo;
-    gmtime_r(&now, &timeinfo);
-    xprint("\nCurrent time: ");
-    xprintln(asctime(&timeinfo));
+
+    if (now < 1672531200UL) {
+        xprintln("\nFailed to synchronize time with NTP after multiple retries.");
+        // Consider setting a flag indicating time sync failure
+    } else {
+        struct tm timeinfo;
+        gmtime_r(&now, &timeinfo);
+        xprint("\nCurrent time: ");
+        xprintln(asctime(&timeinfo));
+    }
 }
 
 const char* extractHostName(const char* connectionString) {
@@ -103,55 +166,88 @@ const char* IOTHubInstance::getAzureHostName() {
 bool IOTHubInstance::setupAzureIoTClient() {
     xprintln("Setting up Azure IoT Hub client (Singleton)...");
 
+    // Step 1: Clean up any pre-existing client instance thoroughly.
+    if (this->iotHubClientHandle != nullptr) {
+        xprintln("Destroying existing IoT Hub client handle before re-setup (within setupAzureIoTClient).");
+        this->iotHubConnected = false; // Mark as disconnected
+
+        xprintln("IOTHubInstance: Setting ConnectionStatus and Message callbacks to NULL for existing client.");
+        if (IoTHubClient_LL_SetConnectionStatusCallback(this->iotHubClientHandle, NULL, NULL) != IOTHUB_CLIENT_OK) {
+            xprintln("Warning: Failed to set ConnectionStatusCallback to NULL for existing client.");
+        }
+        if (IoTHubClient_LL_SetMessageCallback(this->iotHubClientHandle, NULL, NULL) != IOTHUB_CLIENT_OK) {
+            xprintln("Warning: Failed to set MessageCallback to NULL for existing client.");
+        }
+        
+        // Minimal DoWork before destroying this old handle
+        for (int i = 0; i < 2; ++i) {
+            if (this->iotHubClientHandle != nullptr) {
+                IoTHubClient_LL_DoWork(this->iotHubClientHandle);
+                delay(10);
+            } else break;
+        }
+
+        IoTHubClient_LL_Destroy(this->iotHubClientHandle);
+        this->iotHubClientHandle = nullptr; // CRITICAL
+    }
+
+    // Step 2: Pre-requisite checks (WiFi, Time, Platform)
     if (WiFi.status() != WL_CONNECTED) {
         xprintln("Wi-Fi not connected. Cannot setup Azure IoT Client.");
         return false;
     }
 
     time_t now = time(nullptr);
-    if (now < 8 * 3600 * 2) {
+    if (now < 1672531200UL) { // Example: Jan 1, 2023 UTC
          xprintln("Time not synchronized. TLS connection might fail. Ensure syncTimeNTP() was called and succeeded.");
+         // return false; // Strongly consider making this a failure condition
     }
 
-    if (platform_init() != 0) {
-        xprintln("Failed to initialize the platform.");
+    if (!platformInitialized) { // Assuming platformInitialized is managed as per previous discussions
+        xprintln("Platform not initialized! Cannot setup Azure IoT Client.");
         return false;
     }
 
-    iotHubClientHandle = IoTHubClient_LL_CreateFromConnectionString(IOTHUB_CONNECTION_STRING, MQTT_Protocol);
-    if (iotHubClientHandle == NULL) {
+    // Step 3: Create the new client handle
+    this->iotHubClientHandle = IoTHubClient_LL_CreateFromConnectionString(IOTHUB_CONNECTION_STRING, MQTT_Protocol);
+    if (this->iotHubClientHandle == NULL) {
         xprintln("Failed to create IoT Hub client handle.");
-        platform_deinit();
+        this->iotHubConnected = false; // Ensure status
         return false;
     }
+    this->iotHubConnected = false; // Initial state for new handle, will be updated by callback
 
-
-    if (IoTHubClient_LL_SetOption(iotHubClientHandle, OPTION_TRUSTED_CERT, AZURE_IOT_ROOT_CA_CERTIFICATE) != IOTHUB_CLIENT_OK) {
-        xprintln("Failed to set trusted CA certificate option. This may lead to connection issues.");
-        // Not returning false here, to allow attempt to connect without it if user insists or for testing.
-    } else {
-        xprintln("Trusted CA certificate option set.");
+    // Step 4: Set options for the new client
+    if (IoTHubClient_LL_SetOption(this->iotHubClientHandle, OPTION_TRUSTED_CERT, AZURE_IOT_ROOT_CA_CERTIFICATE) != IOTHUB_CLIENT_OK) {
+        xprintln("Failed to set trusted CA certificate option.");
+        IoTHubClient_LL_Destroy(this->iotHubClientHandle); // Clean up partially created client
+        this->iotHubClientHandle = nullptr;
+        return false;
     }
+    xprintln("Trusted CA certificate option set.");
 
     int keepAliveIntervalSeconds = MQTT_KEEP_ALIVE_MINUTES * 60;
-    if (IoTHubClient_LL_SetOption(iotHubClientHandle, OPTION_KEEP_ALIVE, &keepAliveIntervalSeconds) != IOTHUB_CLIENT_OK) {
-        xprintln("Failed to set MQTT keep alive option.");
+    if (IoTHubClient_LL_SetOption(this->iotHubClientHandle, OPTION_KEEP_ALIVE, &keepAliveIntervalSeconds) != IOTHUB_CLIENT_OK) {
+        xprintln("Failed to set MQTT keep alive option."); // Log but might not be fatal
     } else {
-        xprint("MQTT Keep Alive option set to: ");
-        xprint(MQTT_KEEP_ALIVE_MINUTES);
-        xprintln(" minutes.");
+        xprint("MQTT Keep Alive option set to: "); xprint(MQTT_KEEP_ALIVE_MINUTES); xprintln(" minutes.");
     }
 
-    if (IoTHubClient_LL_SetConnectionStatusCallback(iotHubClientHandle, IOTHubInstance::connectionStatusCallback, this) != IOTHUB_CLIENT_OK) {
-        xprintln("Failed to set connection status callback.");
+    // Step 5: Register actual callbacks for the new client
+    xprintln("IOTHubInstance: Registering actual callbacks for the new client.");
+    if (IoTHubClient_LL_SetConnectionStatusCallback(this->iotHubClientHandle, IOTHubInstance::connectionStatusCallback, this) != IOTHUB_CLIENT_OK) {
+        xprintln("Failed to set connection status callback for new client.");
+        IoTHubClient_LL_Destroy(this->iotHubClientHandle);
+        this->iotHubClientHandle = nullptr;
+        return false;
     }
 
-    // Optional: Set message callback for C2D messages
-    if (IoTHubClient_LL_SetMessageCallback(iotHubClientHandle, IOTHubInstance::receiveMessageCallback, this) != IOTHUB_CLIENT_OK) {
-        xprintln("Failed to set message callback.");
+    if (IoTHubClient_LL_SetMessageCallback(this->iotHubClientHandle, IOTHubInstance::receiveMessageCallback, this) != IOTHUB_CLIENT_OK) {
+        xprintln("Failed to set message callback for new client.");
+        // Decide if this is fatal, if so, destroy and return false.
     }
 
-    xprintln("Azure IoT Hub client setup complete. The SDK will attempt to connect in the loop via DoWork().");
+    xprintln("Azure IoT Hub client setup initiated. The SDK will attempt to connect via DoWork().");
     return true;
 }
 

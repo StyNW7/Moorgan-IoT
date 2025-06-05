@@ -136,119 +136,200 @@ float Sensors_Processes::readTempData(){
 
 
 // Holy Grail function of the entire project where all the logic is implemented
-void Sensors_Processes::pullData(){
+void Sensors_Processes::pullData() {
+    IOTHubInstance* iotHub = IOTHubInstance::getInstance(); // Get instance once
 
-    // if(lasttime == 0){
-    //     lasttime = millis();
-    // } else {
-    //     unsigned long long elapsed = millis() - lasttime;
-    //     if(elapsed < sleepinterval){
-    //         unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
-    //         xprintf("Sleeping for: %llu microseconds.\n", sleepTime_us); // Using xprintf
-    //         xflush(); 
-    //         esp_sleep_enable_timer_wakeup(sleepTime_us); 
-    //         esp_light_sleep_start();
-    //     }
-    //     lasttime = millis();
-    // }
+    // --- Sleep Logic ---
+    if (lasttime == 0) {
+        lasttime = millis();
+    } else {
+        unsigned long long elapsed = millis() - lasttime;
+        if (elapsed < sleepinterval) {
+            unsigned long long sleepTime_us = (sleepinterval - elapsed) * 1000ULL;
+            xprintf("Preparing to sleep for: %llu microseconds.\n", sleepTime_us);
 
+
+            // Also, ensure the connection status flag reflects the disconnection.
+            // A direct method like iotHub->setConnectionStatus(false); could be useful.
+            // The connectionStatusCallback should ideally set iotHubConnected to false
+            // when the client is destroyed or connection is lost.
+
+            // Note: platform_deinit() should NOT be called here if it's managed globally
+            // by the IOTHubInstance constructor/destructor.
+
+            // Optional: Explicitly disconnect WiFi. Light sleep often does this, but being explicit can be safer.
+            // if (WiFi.status() == WL_CONNECTED) {
+            //     xprintln("Disconnecting WiFi before light sleep...");
+            //     WiFi.disconnect(true); // true to turn off WiFi radio
+            //     unsigned long disconnect_start = millis();
+            //     while(WiFi.status() == WL_CONNECTED && (millis() - disconnect_start < 1000)) {
+            //         delay(100); // Wait up to 1 second for disconnect
+            //     }
+            //     if (WiFi.status() == WL_CONNECTED) xprintln("WiFi did not disconnect quickly.");
+            //     else xprintln("WiFi disconnected.");
+            // }
+
+            iotHub->prepareForSleep();
+
+            xflush(); // Ensure log messages are sent
+            xprintln("Entering light sleep...");
+            esp_sleep_enable_timer_wakeup(sleepTime_us);
+            esp_light_sleep_start();
+            xprintln("Woke up from light sleep.");
+            // lasttime will be updated after this block.
+        }
+        lasttime = millis(); // Update lasttime after potential sleep or if sleep was skipped
+    }
+
+    // --- Post-Wake / Normal Operation ---
+
+    // **Step 2: Ensure WiFi is reconnected**
+    // The Provisioning system (SysProvEvent) should handle WiFi disconnections and reconnections.
+    // We just check the status here.
+    xprintln("Checking WiFi connection status...");
+    if (WiFi.status() != WL_CONNECTED) {
+        xprintln("WiFi is not connected. Waiting for Provisioning system or automatic reconnection...");
+        int wifi_check_retries = 0;
+        while(WiFi.status() != WL_CONNECTED && wifi_check_retries < 10) { // Check for up to 5 seconds
+            delay(500);
+            xprint(".");
+            wifi_check_retries++;
+        }
+        xprintln("");
+        if (WiFi.status() != WL_CONNECTED) {
+            xprintln("WiFi still not connected. Azure IoT Hub operations will likely fail or be skipped.");
+        } else {
+            xprintln("WiFi reconnected or was already connected.");
+        }
+    } else {
+        xprintln("WiFi is connected.");
+    }
+
+    // **Step 3: Re-initialize Azure IoT Hub client if necessary**
+    // The previous call to IoTHubClient_LL_Destroy (if it happened) means the client needs to be set up again.
+    // The check !iotHub->isAzureIoTConnected() along with the fixes to setupAzureIoTClient (to destroy old handle)
+    // should manage this.
+    if (WiFi.status() == WL_CONNECTED) {
+        // ADDED: Disable WiFi modem power save mode
+        xprintln("Disabling WiFi power save mode (setting to WIFI_PS_NONE)...");
+        esp_wifi_set_ps(WIFI_PS_NONE);
+
+        xprintln("Re-synchronizing NTP time after wake-up...");
+        iotHub->syncTimeNTP();
+
+        xprintln("Short delay for network stack stabilization (1000ms)...");
+        delay(1000);
+
+        if (!iotHub->isAzureIoTConnected()) {
+            xprintln("Azure IoT Hub is NOT connected post-wake. Setting up Azure IoT client...");
+            if (!iotHub->setupAzureIoTClient()) {
+                xprintln("Failed to set up Azure IoT client post-wake. Will retry in the next cycle.");
+            }
+        }
+
+        // Optional: If you want to re-enable power saving for WiFi during the active period
+        // (before the next light sleep cycle), you could call esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+        // here or just before calling esp_light_sleep_start(). However, for testing,
+        // it's simpler to leave it disabled first to see if it impacts the connection.
+        // If it works, you can then decide on a strategy for re-enabling it.
+
+    } else {
+        xprintln("WiFi not connected, skipping Azure IoT Hub client setup.");
+    }
+
+
+    // --- Collect Sensor Data ---
     #ifndef TESTINGMODE
     MainData *data = new MainData();
     if (!data) {
         xprintln("Error: Failed to allocate memory for MainData!");
-        return; // Early exit if memory allocation fails
+        return; // Early exit
     }
-    // Initialize pointers in MainData to nullptr
-    data->mpu_data = nullptr;
+    data->mpu_data = nullptr; // Initialize pointers
     data->max_data = nullptr;
-    
-    if(getTempAvail()){
-        data->temp_in_c = readTempData();
+
+    if(getTempAvail()){ //
+        data->temp_in_c = readTempData(); //
     } else {
         xprintln("Temperature sensor not available.");
-        data->temp_in_c = NAN; // Indicate missing data
+        data->temp_in_c = NAN; 
     }
 
-    // if(getMovAvail(mpu)){ // REMOVE
-    if(getMovAvail()){ // ADD - Call your new getMovAvail
-        data->mpu_data = readMPUData();
+    if(getMovAvail()){ //
+        data->mpu_data = readMPUData(); //
     } else {
         xprintln("Movement sensor not available or no new movement data.");
-        // Optionally, allocate a simple MPUData with 0 windows if backend expects the object
-        // For now, leaving as nullptr if no data.
     }
     
     #ifdef DEVMODE
-    xprintln("Memory left after reading Movement.");
-    ESP32C3_Monitor::getInstance().printStatus();
+    xprintln("Memory left after reading Movement."); //
+    ESP32C3_Monitor::getInstance().printStatus(); //
     #endif
     
-    if(max->isConnected()){ // MAX30102 object still exists and is used
-        data->max_data = max->runReading();
+    if(max->isConnected()){ //
+        data->max_data = max->runReading(); //
     } else {
         xprintln("MAX30102 sensor not available.");
     }
     
     #ifdef DEVMODE
-    xprintln("Memory left after reading hr and spo.");
-    ESP32C3_Monitor::getInstance().printStatus();
+    xprintln("Memory left after reading hr and spo."); //
+    ESP32C3_Monitor::getInstance().printStatus(); //
     #endif
     
-    data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT)));
-    data->battery_percentage = getBatteryCapacity();
+    data->distance_from_wifi_m = pow(10,((WIFIMEASUREDPOWER - WiFi.RSSI()) / (10.0f * PATHLOSSEXPONENT))); //
+    data->battery_percentage = getBatteryCapacity(); //
 
     if(datastream){
-        datastream->addData(data);
+        datastream->addData(data); //
     } else {
         xprintln("Data stream not initialized.");
         // Clean up allocated data if not added to stream
         if (data) {
-            if(data->mpu_data) { // If MPUData was allocated by readMPUData but not added
+            if(data->mpu_data) { 
                 free(data->mpu_data->mean_ax_arr); free(data->mpu_data->mean_ay_arr);
                 free(data->mpu_data->mean_az_arr); free(data->mpu_data->mean_mv_arr);
                 free(data->mpu_data->std_mv_arr);
                 delete data->mpu_data;
             }
-            if(data->max_data) { // If MAXData was allocated but not added
-                 delete data->max_data; // Assuming MAXData is dynamically allocated by max->runReading()
+            if(data->max_data) { 
+                 delete data->max_data; 
             }
             delete data;
         }
     }
+    #else // TESTINGMODE
+    // If in testing mode, and you have specific logic, it goes here.
+    // Potentially generate random data if not reading sensors.
+    #endif
 
-    #endif // TESTINGMODE
-
-    ++readingcount;
+    ++readingcount; //
     
-    xprintln("Checking WiFi connection status...");
-
-    do {
-        delay(500);
-        Serial.print(".");
-    }while (WiFi.status() != WL_CONNECTED);
-
-    xprintln("WiFi is connected.");
-    // if(!IOTHubInstance::getInstance()->isAzureIoTConnected()){
-    //     xprintln("Azure IoT Hub is NOT connected. Setting up Azure IoT client...");
-    //     IOTHubInstance::getInstance()->setupAzureIoTClient(); 
-    // }
-
-    xprintln("Azure IoT Hub is connected.");
-    if(readingcount >= readingitter){
-        xprintf("Reading count (%d) reached threshold (%d). Sending telemetry request...\n", readingcount, readingitter);
-        sendTelemetryRequest();
-        readingcount = 0; // Reset counter after sending
-        xprintln("Reading count reset to 0 after sending telemetry.");
+    // --- Process Telemetry ---
+    // Ensure client handle is valid and connected before calling DoWork or sending.
+    if (iotHub->getIotHubClientHandle() != nullptr) {
+        if (iotHub->isAzureIoTConnected()) {
+            if (readingcount >= readingitter) {
+                xprintf("Reading count (%d) reached threshold (%d). Sending telemetry request...\n", readingcount, readingitter); //
+                sendTelemetryRequest(); //
+                readingcount = 0; //
+                xprintln("Reading count reset to 0 after sending telemetry."); //
+            } else {
+                xprintf("Reading count (%d) has not reached threshold (%d). Not sending telemetry yet.\n", readingcount, readingitter); //
+            }
+        } else {
+            xprintln("Azure IoT Hub not connected. Skipping telemetry send for this cycle.");
+            // DoWork (called next) should attempt to process reconnections if setup was successful.
+        }
+        xprintln("Calling IoTHubClient_LL_DoWork..."); //
+        IoTHubClient_LL_DoWork(iotHub->getIotHubClientHandle()); //
     } else {
-        xprintf("Reading count (%d) has not reached threshold (%d). Not sending telemetry yet.\n", readingcount, readingitter);
+        xprintln("Azure IoT Hub client handle is NULL post-wake. Cannot call DoWork or send telemetry this cycle.");
     }
-    xprintln("Calling IoTHubClient_LL_DoWork...");
-    IoTHubClient_LL_DoWork(IOTHubInstance::getInstance()->getIotHubClientHandle());
-
 
     #ifdef DEVMODE
-    xprintln("Data pulled successfully.");
-    ESP32C3_Monitor::getInstance().printStatus();
+    xprintln("Data pulled successfully."); //
+    ESP32C3_Monitor::getInstance().printStatus(); //
     #endif
 
     vTaskDelay(50 / portTICK_PERIOD_MS); 
