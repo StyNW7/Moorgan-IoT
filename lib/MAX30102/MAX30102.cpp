@@ -34,7 +34,6 @@ MAX30102* MAX30102::instance = nullptr;
 // Constructor
 MAX30102::MAX30102() {
     instance = this;
-    dataframetofill = nullptr; // Initialize members
     validSamplesCount = 0;
     ppgDataNotificationSemaphore = NULL; // Will be created in setup
     readingscount = 255; // Initialize reading count
@@ -42,10 +41,6 @@ MAX30102::MAX30102() {
     last_oxygen_saturation = 0.0f; // Initialize last oxygen saturation
 }
 
-// ISR Wrapper - Definition
-void IRAM_ATTR MAX30102::isrWrapper() {
-    if (instance) instance->interruptServiceRoutine();
-}
 
 // Setup method - Definition
 void MAX30102::setup() {
@@ -108,14 +103,9 @@ void MAX30102::ppgSensorTask(MAXData * dataframe) {
     if (validSamplesCount > 0) {
         xprintln("\n--- Data Processing ---");
         // Optional: Print a few samples for debugging
-        for(int i=0; i < 10 && i < validSamplesCount; ++i) {
-            xprint("Sample "); xprint(i);
-            xprint(" - IR: "); xprint(ppgDataBuffer[i].ir);
-            xprint(", Red: "); xprintln(ppgDataBuffer[i].red);
-        }
-
-        float heart_rate_bpm = calculateHeartRate(ppgDataBuffer, validSamplesCount);
-        float oxygen_saturation_percent = calculateSpO2(ppgDataBuffer, validSamplesCount);
+        float heart_rate_bpm = 0;
+        float oxygen_saturation_percent = 0;
+        calculateHRAndSpO2(ppgDataBuffer, validSamplesCount, heart_rate_bpm, oxygen_saturation_percent);
         
         if (dataframe != nullptr) { // Check if dataframetofill is valid
             dataframe->heart_rate = heart_rate_bpm;
@@ -133,17 +123,6 @@ void MAX30102::ppgSensorTask(MAXData * dataframe) {
         xprintln("Task: No valid PPG samples were collected.");
     }
     xprintln("\nTask: PPG Sensor Task finished its cycle.");
-}
-
-// interruptServiceRoutine method - Definition
-void MAX30102::interruptServiceRoutine() {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    if (ppgDataNotificationSemaphore != NULL) {
-        xSemaphoreGiveFromISR(ppgDataNotificationSemaphore, &xHigherPriorityTaskWoken);
-        if (xHigherPriorityTaskWoken) {
-            portYIELD_FROM_ISR();
-        }
-    }
 }
 
 // writeRegister method - Definition
@@ -341,97 +320,103 @@ collection_done:
     return current_stored_sample_index;
 }
 
-// calculateHeartRate method - Definition
-float MAX30102::calculateHeartRate(const ppgSample samples[], uint16_t num_samples) {
-    // Ensure SAMPLES_PER_SECOND is defined (e.g., in config.h, matching sensor config)
-    if (num_samples < SAMPLES_PER_SECOND * 5) { // Need at least 5 seconds of data
-        xprintln("HR Calc: Not enough samples for HR calculation.");
-        return 0.0;
+void MAX30102::calculateHRAndSpO2(const ppgSample samples[], uint16_t num_samples, float& out_hr, float& out_spo2) {
+    // Default to 0, which we'll treat as invalid data
+    out_hr = 0;
+    out_spo2 = 0;
+
+    if (num_samples < SAMPLES_PER_SECOND * 2) {
+        xprintln("Calc: Not enough samples for a reliable calculation.");
+        return;
     }
 
-    int peak_count = 0;
-    uint64_t ir_sum_long = 0; // Use 64-bit to avoid overflow for sum
-    for(int i=0; i<num_samples; ++i) ir_sum_long += samples[i].ir;
-    uint32_t ir_avg = ir_sum_long / num_samples;
+    // --- Heart Rate Calculation ---
+    float ir_filtered[PPG_BUFFER_SIZE];
+    uint32_t ir_max = 0, ir_min = UINT32_MAX;
 
-    bool above_threshold = false;
-    // Simple peak detection based on crossing the average
-    for (uint16_t i = 0; i < num_samples; i++) {
-        if (samples[i].ir > ir_avg && !above_threshold) {
-            peak_count++;
-            above_threshold = true;
-        } else if (samples[i].ir < ir_avg) {
-            above_threshold = false;
+    // Apply a simple moving average filter to the IR signal to reduce noise
+    for (int i = 0; i < num_samples; i++) {
+        float sum = 0;
+        int count = 0;
+        for (int j = max(0, i - 2); j <= min((int)num_samples - 1, i + 2); j++) {
+            sum += samples[j].ir;
+            count++;
+        }
+        ir_filtered[i] = sum / count;
+        if (ir_filtered[i] > ir_max) ir_max = ir_filtered[i];
+        if (ir_filtered[i] < ir_min) ir_min = ir_filtered[i];
+    }
+
+    // Check if signal has enough dynamic range
+    if (ir_max - ir_min < 1000) {
+        xprintln("Calc: IR signal is too flat. Check sensor placement.");
+        return;
+    }
+
+    // Adaptive threshold for peak detection
+    float threshold = ir_min + (ir_max - ir_min) * 0.6f;
+    int peak_count = 0;
+    int peak_positions[100]; // Assume no more than 100 peaks in the buffer
+    int peak_index = 0;
+
+    for (int i = 2; i < num_samples - 2; i++) {
+        if (peak_index >= 100) break; // Prevent buffer overflow on peak_positions
+
+        // Condition for a point to be a peak
+        if (ir_filtered[i] > threshold &&
+            ir_filtered[i] > ir_filtered[i-1] &&
+            ir_filtered[i] > ir_filtered[i+1] &&
+            ir_filtered[i] > ir_filtered[i-2] &&
+            ir_filtered[i] > ir_filtered[i+2]) {
+
+            // Validate distance between peaks (at 50Hz, 300bpm is a peak every 10 samples)
+            if (peak_index == 0 || (i - peak_positions[peak_index-1] > 10)) {
+                peak_positions[peak_index++] = i;
+            }
         }
     }
+    peak_count = peak_index;
 
-    float duration_seconds = (float)num_samples / SAMPLES_PER_SECOND;
-    if (duration_seconds <= 0 || peak_count <= 1) { // Need more than one peak to calculate rate
-        xprintln("HR Calc: Not enough peaks or invalid duration.");
-        return 0.0;
+    // Calculate heart rate from the average distance between peaks
+    if (peak_count > 1) {
+        float avg_interval = 0;
+        for (int i = 1; i < peak_count; i++) {
+            avg_interval += (peak_positions[i] - peak_positions[i-1]);
+        }
+        avg_interval /= (peak_count - 1);
+        out_hr = (60.0f * SAMPLES_PER_SECOND) / avg_interval;
     }
 
-    float bpm = ((float)peak_count / duration_seconds) * 60.0f;
-
-    // Basic plausibility check for cattle (adjust ranges as needed)
-    if (bpm < 30.0 || bpm > 160.0) {
-        xprint("HR Calc: Calculated BPM ("); xprint(bpm); xprintln(") out of typical range for cattle (30-160).");
-        // Could return 0 or the calculated value depending on requirements
-    }
-    return bpm;
-}
-
-// calculateSpO2 method - Definition
-float MAX30102::calculateSpO2(const ppgSample samples[], uint16_t num_samples) {
-    if (num_samples < SAMPLES_PER_SECOND * 5) { // Need at least 5 seconds of data
-        xprintln("SpO2 Calc: Not enough samples for SpO2 calculation.");
-        return 0.0;
+    // --- SpO2 Calculation ---
+    uint64_t ir_sum = 0, red_sum = 0;
+    for(int i=0; i<num_samples; ++i) {
+        ir_sum += samples[i].ir;
+        red_sum += samples[i].red;
     }
 
-    uint64_t sum_ir_dc_long = 0, sum_red_dc_long = 0;
-    uint32_t min_ir_val = samples[0].ir, max_ir_val = samples[0].ir;
-    uint32_t min_red_val = samples[0].red, max_red_val = samples[0].red;
+    float dc_ir = (float)ir_sum / num_samples;
+    float dc_red = (float)red_sum / num_samples;
 
-    for(uint16_t i=0; i<num_samples; ++i) {
-        sum_ir_dc_long += samples[i].ir;
-        sum_red_dc_long += samples[i].red;
-
-        if(samples[i].ir < min_ir_val) min_ir_val = samples[i].ir;
-        if(samples[i].ir > max_ir_val) max_ir_val = samples[i].ir;
-        if(samples[i].red < min_red_val) min_red_val = samples[i].red;
-        if(samples[i].red > max_red_val) max_red_val = samples[i].red;
+    // Calculate AC component using RMS (more stable than peak-to-peak)
+    float ac_ir_sum_sq = 0, ac_red_sum_sq = 0;
+    for(int i=0; i<num_samples; ++i) {
+        ac_ir_sum_sq += pow(samples[i].ir - dc_ir, 2);
+        ac_red_sum_sq += pow(samples[i].red - dc_red, 2);
     }
+    float ac_ir_rms = sqrt(ac_ir_sum_sq / num_samples);
+    float ac_red_rms = sqrt(ac_red_sum_sq / num_samples);
 
-    float dc_ir = (float)sum_ir_dc_long / num_samples;
-    float dc_red = (float)sum_red_dc_long / num_samples;
+    // Calculate R and SpO2
+    float R = (ac_red_rms / dc_red) / (ac_ir_rms / dc_ir);
+    out_spo2 = 104.0f - 17.0f * R;
 
-    // AC component is peak-to-peak amplitude
-    float ac_ir = (float)(max_ir_val - min_ir_val);
-    float ac_red = (float)(max_red_val - min_red_val);
+    // --- Final Data Validation ---
+    if (out_hr < 40 || out_hr > 180) out_hr = 0;
+    if (out_spo2 < 70 || out_spo2 > 100) out_spo2 = 0;
 
-    // Check for valid signal strength
-    if (dc_ir <= 1000 || dc_red <= 1000 || ac_ir <= 100 || ac_red <= 100 ) { // Thresholds may need tuning
-        xprintln("SpO2 Calc: Signal too weak or flat for reliable SpO2 calculation.");
-        xprint("DC_IR: "); xprint(dc_ir); xprint(", DC_RED: "); xprint(dc_red);
-        xprint(", AC_IR: "); xprint(ac_ir); xprint(", AC_RED: "); xprintln(ac_red);
-        return 0.0;
+    if(out_hr == 0 && out_spo2 == 0) {
+        xprintln("Calc: Failed to derive valid HR and SpO2. Data is likely noisy.");
     }
-
-    // Ratio of Ratios (R)
-    float R = (ac_red / dc_red) / (ac_ir / dc_ir);
-
-    // Empiric SpO2 formula (common approximation, may need calibration for specific sensor/setup)
-    // SpO2 = A - B * R.  Common values are A=110, B=25. Or A=104, B=17 for some.
-    // This formula is highly dependent on the sensor, wavelength, and subject.
-    // For real accuracy, calibration is essential.
-    float spo2_estimate = 110.0f - 25.0f * R;
-
-    if (spo2_estimate > 100.0f) spo2_estimate = 100.0f; // Cap at 100%
-    if (spo2_estimate < 70.0f) { // Unlikely low for healthy, conscious animal
-        xprint("SpO2 Calc: Calculated SpO2 ("); xprint(spo2_estimate); xprint("%) out of typical range or R value problematic. R = "); xprintln(R);
-        // Could return 0 or the calculated value
-    }
-    return spo2_estimate;
 }
 
 MAX30102::~MAX30102() {
