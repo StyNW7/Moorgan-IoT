@@ -1,12 +1,12 @@
 #pragma once
-// #define DEVMODE
+#define DEVMODE
 // #define TESTINGMODE
 #define NO_PROVISIONING
 #define PROVISIONING_SERVICE_NAME "PROV_moorgan_colar" // service name have to start with PROV_
-#define PRE_REGISTERED_DEVICE_UUID "70e3adae-7d64-409b-8e6c-213416f2ea72" // UUID of the device, can be found in Azure IoT Hub -> Devices -> Your Device -> Device ID
+#define PRE_REGISTERED_DEVICE_UUID "4" // UUID of the device, can be found in Azure IoT Hub -> Devices -> Your Device -> Device ID
 // UUID can be changed, for now no azure auto provisioning is implemented
 // uploading interval
-#define DEFAULTUPLOADINTERVAL 2 // don't forget to set this back to 60
+#define DEFAULTUPLOADINTERVAL 5 // upload every 5 reading
 
 // temperature sensor
 #define DS18B20_PIN 10
@@ -15,12 +15,12 @@
 
 // mpu gyro accel sensor
 // #define MPU_INTERRUPT_PIN 5
-#define WINDOWSIZE 6
+#define WINDOWSIZE 6 // for windowing samples to extract features from every readings interval
 
 // max hr spo sensor configuration constants
 #define MAX30102_INT_PIN 3
 #define DISCARD_DURATION_MS 5000  // 5 seconds for sensor/signal to stabilize
-#define ACTIVE_READ_DURATION_MS 30000 // 30 seconds for actual data collection
+#define ACTIVE_READ_DURATION_MS 20000 // 30 seconds for actual data collection
 #define TOTAL_OPERATION_DURATION_MS (DISCARD_DURATION_MS + ACTIVE_READ_DURATION_MS) // 35 seconds
 #define SAMPLES_PER_SECOND 50
 #define PPG_BUFFER_SIZE (SAMPLES_PER_SECOND*(ACTIVE_READ_DURATION_MS/1000))
