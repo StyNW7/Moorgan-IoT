@@ -1,10 +1,10 @@
-# Moorgan-IoT: Smart Health & Activity Monitor 🐄
+# Moorgan-IoT: Smart Health & Activity Monitor For Cows 🐄
 
-[][platform-link]
-[][framework-link]
-[][language-link]
-[](https://www.google.com/search?q=LICENSE)
-[](https://www.google.com/search?q=%23)
+[![Platform][platform-badge]][platform-link]
+[![Framework][framework-badge]][framework-link]
+[![Language][language-badge]][language-link]
+[![License][license-badge]](LICENSE)
+[![Status][status-badge]](#)
 
 > An advanced IoT solution for real-time monitoring of health and environmental metrics using an ESP32-C3, various sensors, and the Azure IoT Hub. This repository contains the firmware for the IoT device.
 
@@ -292,6 +292,12 @@ If `NO_PROVISIONING` is defined in the config.h file, before uploading the firmw
   * **Backend Repository:** [StyNW7/Moorgan-Backend](https://github.com/StyNW7/Moorgan-Backend)
   * **AI Repository:** [StyNW7/Moorgan-AI](https://github.com/StyNW7/Moorgan-AI)
   * **IoT Repository (You are here):** [StyNW7/Moorgan-IoT](https://github.com/StyNW7/Moorgan-IoT)
+
+[platform-badge]: https://img.shields.io/badge/Platform-PlatformIO-orange.svg
+[framework-badge]: https://img.shields.io/badge/Framework-Arduino-00979D.svg
+[language-badge]: https://img.shields.io/badge/Language-C%2B%2B-blue.svg
+[license-badge]: https://img.shields.io/badge/License-MIT-yellow.svg
+[status-badge]: https://img.shields.io/badge/Status-In%20Progress-brightgreen
 
 [platform-link]: https://platformio.org/
 [framework-link]: https://www.arduino.cc/
